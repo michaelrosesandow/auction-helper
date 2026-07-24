@@ -153,9 +153,34 @@ async function renderLeagueSelector(): Promise<void> {
   sel.value = state.league;
 }
 
-async function persistPar(): Promise<void> {
-  await saveParSheet(state.league, state.parSheet);
+function savePar(): void {
+  void saveParSheet(state.league, state.parSheet);
+}
+
+// Full re-render of the par section (reset / redistribute / league switch).
+function persistPar(): void {
   renderParSheet();
+  savePar();
+}
+
+// Targeted updates that leave input values and focus intact. Rebuilding the
+// whole table on every change is what blanked the name on Tab and stole focus.
+function refreshSummary(): void {
+  byId("par-summary").innerHTML = summaryHtml(computeParState(state.parSheet));
+}
+
+function refreshVariance(slotId: SlotId): void {
+  const sv = computeParState(state.parSheet).slots.find((s) => s.id === slotId);
+  const cell = document.querySelector(`tr[data-slot="${slotId}"] .var`);
+  if (sv && cell) {
+    cell.innerHTML = sv.variance === null ? "&mdash;" : fmtSigned(sv.variance);
+  }
+}
+
+function afterParEdit(slotId: SlotId): void {
+  refreshSummary();
+  refreshVariance(slotId);
+  savePar();
 }
 
 function onParRowsChange(e: Event): void {
@@ -170,32 +195,46 @@ function onParRowsChange(e: Event): void {
   }
   if (target.classList.contains("par-input")) {
     state.parSheet = setPar(state.parSheet, slotId as SlotId, Number(target.value));
-  } else {
-    handleAssignment(tr, slotId as SlotId);
+    afterParEdit(slotId as SlotId);
+    return;
   }
-  void persistPar();
+  // player / price inputs
+  if (handleAssignment(tr, slotId as SlotId)) {
+    afterParEdit(slotId as SlotId);
+  }
 }
 
-function handleAssignment(tr: Element | null, slotId: SlotId): void {
+// Returns true when state changed (so the row + summary need refreshing).
+// A name with no price yet is treated as in-progress and left alone, which is
+// what stops Tab from name → price from blanking the name.
+function handleAssignment(tr: Element | null, slotId: SlotId): boolean {
   if (!tr) {
-    return;
+    return false;
   }
   const nameInput = tr.querySelector<HTMLInputElement>(".player-input");
   const actualInput = tr.querySelector<HTMLInputElement>(".actual-input");
   const name = nameInput?.value.trim() ?? "";
   const actual = actualInput?.value.trim() ?? "";
-  if (name === "" || actual === "") {
+  if (name === "" && actual === "") {
     state.parSheet = unassignSlot(state.parSheet, slotId);
-    return;
+    return true;
   }
-  const player = state.rankings?.players.find((p) => p.name.toLowerCase() === name.toLowerCase());
-  state.parSheet = assignSlot(
-    state.parSheet,
-    slotId,
-    player?.id ?? slugify(name),
-    Number(actual),
-    player?.name ?? name,
-  );
+  if (name !== "" && actual !== "") {
+    const player = state.rankings?.players.find((p) => p.name.toLowerCase() === name.toLowerCase());
+    if (player && nameInput) {
+      nameInput.value = player.name; // normalize to canonical spelling
+    }
+    state.parSheet = assignSlot(
+      state.parSheet,
+      slotId,
+      player?.id ?? slugify(name),
+      Number(actual),
+      player?.name ?? name,
+    );
+    return true;
+  }
+  // one field is still pending — leave the slot and the inputs as they are
+  return false;
 }
 
 function onParRowsClick(e: Event): void {
@@ -209,17 +248,25 @@ function onParRowsClick(e: Event): void {
     return;
   }
   state.parSheet = unassignSlot(state.parSheet, slotId as SlotId);
-  void persistPar();
+  const nameInput = tr?.querySelector<HTMLInputElement>(".player-input");
+  const actualInput = tr?.querySelector<HTMLInputElement>(".actual-input");
+  if (nameInput) {
+    nameInput.value = "";
+  }
+  if (actualInput) {
+    actualInput.value = "";
+  }
+  afterParEdit(slotId as SlotId);
 }
 
 function onResetPar(): void {
   state.parSheet = defaultParSheet();
-  void persistPar();
+  persistPar();
 }
 
 function onRedistribute(): void {
   state.parSheet = redistributeBalance(state.parSheet);
-  void persistPar();
+  persistPar();
 }
 
 function onImport(): void {
