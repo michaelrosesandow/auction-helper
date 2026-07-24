@@ -1,0 +1,15 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Deps
+node_modules/
+
+# Build output
+dist/
+build/
+
+# OS / editor
+.DS_Store
+*.log

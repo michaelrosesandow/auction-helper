@@ -1,0 +1,18 @@
+[[repos]]
+repo = "local"
+
+[[repos.hooks]]
+id = "oxlint"
+name = "oxlint"
+language = "system"
+entry = "npx oxlint --tsconfig tsconfig.json"
+types_or = ["ts", "tsx", "javascript", "jsx"]
+pass_filenames = false
+
+[[repos.hooks]]
+id = "oxfmt"
+name = "oxfmt"
+language = "system"
+entry = "npx oxfmt --check"
+types_or = ["ts", "tsx", "javascript", "jsx", "json"]
+pass_filenames = false

@@ -1,0 +1,28 @@
+{
+  "name": "yahoo-auction-helper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chrome extension for Yahoo fantasy football Superflex auction drafts.",
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "lint": "oxlint --tsconfig tsconfig.json",
+    "lint:fix": "oxlint --tsconfig tsconfig.json --fix",
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
+    "knip": "knip",
+    "knip:production": "knip --production",
+    "prepare": "prek install || true",
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch"
+  },
+  "devDependencies": {
+    "@j178/prek": "^0.4.10",
+    "@types/chrome": "^0.2.2",
+    "esbuild": "^0.28.1",
+    "knip": "^6.29.0",
+    "oxfmt": "^0.60.0",
+    "oxlint": "^1.75.0",
+    "typescript": "^7.0.2"
+  }
+}
