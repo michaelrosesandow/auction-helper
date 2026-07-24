@@ -110,11 +110,12 @@ Median, Ceiling, Target, Fade, Notes` (optional cols tolerated). Rankings
 - [x] TS toolchain (tsc/oxlint/oxfmt/knip/prek) + esbuild build → `dist/`
 - [x] content script with DOM probe scaffold (`?probe=1`)
 - [x] `data/rankings.example.csv` schema reference
-- [ ] par sheet module + UI + storage
-- [ ] rankings CSV importer (parse + validate + store)
-- [ ] live scraper (content script) — pending real DOM
+- [x] par sheet engine + storage (pure, unit-tested)
+- [x] rankings CSV importer (parse + validate + tiers + per-league store)
+- [x] popup UI: league switcher, par-sheet editor, rankings import
+- [ ] live scraper (content script) — pending real DOM via `?probe=1`
 - [ ] engine modules (value, tier/cliff, opponent, leverage, nomination)
-- [ ] panel UI + alert delivery
+- [ ] in-draft panel + alert delivery
 - [ ] live scraper (content script) — pending real DOM
 - [ ] engine modules + panel UI
 - [ ] alert delivery (panel badges + chrome.notifications)

@@ -99,6 +99,8 @@ export interface ParSlot {
   par: number;
   // filled state
   playerId?: string;
+  // display name (esp. for manual entry before the live scraper assigns ids)
+  playerName?: string;
   // price paid
   actual?: number;
 }

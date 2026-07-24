@@ -4,25 +4,191 @@
     <meta charset="utf-8" />
     <title>Auction Helper</title>
     <style>
+      :root {
+        color-scheme: light dark;
+      }
       body {
-        font-family: system-ui, sans-serif;
-        width: 320px;
-        margin: 12px;
-      }
-      h1 {
-        font-size: 16px;
-        margin: 0 0 8px;
-      }
-      p {
+        font-family:
+          system-ui,
+          -apple-system,
+          sans-serif;
         font-size: 13px;
-        color: #555;
+        width: 420px;
+        max-height: 560px;
+        overflow-y: auto;
         margin: 0;
+        padding: 10px;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      header select {
+        flex: 1;
+      }
+      nav button {
+        padding: 6px 10px;
+        border: 1px solid #8886;
+        background: transparent;
+        border-radius: 6px 6px 0 0;
+        cursor: pointer;
+        border-bottom: none;
+      }
+      nav button.active {
+        background: #2a6df4;
+        color: #fff;
+        border-color: #2a6df4;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 6px;
+        margin: 8px 0;
+      }
+      .grid div {
+        display: flex;
+        flex-direction: column;
+        border: 1px solid #8884;
+        border-radius: 6px;
+        padding: 4px 6px;
+      }
+      .grid span {
+        font-size: 10px;
+        opacity: 0.7;
+      }
+      .grid b {
+        font-size: 14px;
+      }
+      .pos b {
+        color: #1a8a3b;
+      }
+      .neg b {
+        color: #c0392b;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 3px 4px;
+        vertical-align: top;
+        border-bottom: 1px solid #8883;
+      }
+      th {
+        font-size: 10px;
+        opacity: 0.7;
+      }
+      td input {
+        width: 100%;
+        box-sizing: border-box;
+        font-size: 12px;
+      }
+      td input[type="number"] {
+        width: 52px;
+      }
+      .var {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+      .actions {
+        display: flex;
+        gap: 6px;
+        margin: 8px 0;
+      }
+      button.primary {
+        background: #2a6df4;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        padding: 6px 10px;
+        cursor: pointer;
+      }
+      button.ghost {
+        background: transparent;
+        border: 1px solid #8886;
+        border-radius: 6px;
+        padding: 6px 10px;
+        cursor: pointer;
+      }
+      .ok {
+        color: #1a8a3b;
+      }
+      .err {
+        color: #c0392b;
+      }
+      textarea {
+        width: 100%;
+        box-sizing: border-box;
+        font-family: ui-monospace, monospace;
+        font-size: 11px;
+        height: 120px;
+      }
+      .muted {
+        opacity: 0.7;
+        font-size: 11px;
       }
     </style>
   </head>
   <body>
-    <h1>Auction Helper</h1>
-    <p>Setup UI (rankings import + par sheet editor) coming next.</p>
+    <header>
+      <strong>Auction Helper</strong>
+      <select id="league"></select>
+    </header>
+
+    <nav>
+      <button id="tab-btn-par" class="active">Par Sheet</button>
+      <button id="tab-btn-rank">Rankings</button>
+    </nav>
+
+    <main>
+      <section id="tab-par">
+        <div id="par-summary" class="grid"></div>
+        <table>
+          <thead>
+            <tr>
+              <th>Slot</th>
+              <th>Par</th>
+              <th>Player</th>
+              <th>$</th>
+              <th class="var">Var</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="par-rows"></tbody>
+        </table>
+        <datalist id="player-list"></datalist>
+        <div class="actions">
+          <button id="reset-par" class="ghost">Reset to default</button>
+          <button id="redistribute" class="ghost">Redistribute balance</button>
+        </div>
+      </section>
+
+      <section id="tab-rank" hidden>
+        <p class="muted">
+          Paste CSV (or load a file). Columns: Player Name, Position, Team, Bye, Tier, Market Value,
+          Floor, Median, Ceiling, Target, Fade, Notes.
+        </p>
+        <textarea
+          id="csv-input"
+          placeholder="Player Name,Position,Team,Tier,Market Value,Median,Ceiling,..."
+        ></textarea>
+        <div class="actions">
+          <button id="import" class="primary">Import</button>
+          <button id="load-example" class="ghost">Load example</button>
+          <label class="ghost" style="display: inline-flex; align-items: center">
+            File…
+            <input type="file" id="csv-file" accept=".csv,text/csv,text/plain" hidden />
+          </label>
+        </div>
+        <div id="rank-status"></div>
+        <div id="rank-summary" class="muted"></div>
+      </section>
+    </main>
+
     <script src="popup.js"></script>
   </body>
 </html>
