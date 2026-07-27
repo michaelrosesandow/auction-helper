@@ -3,7 +3,7 @@
   "entry": [
     "src/content.ts",
     "src/background.ts",
-    "src/popup.ts",
+    "src/sidepanel.ts",
     "src/types.ts",
     "src/**/*.test.ts",
   ],

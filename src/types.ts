@@ -128,7 +128,12 @@ export interface TeamState {
   budgetRemaining: number;
   // maxBid = budgetRemaining - (openRosterSpots - 1), floored at 1
   openRosterSpots: number;
-  roster: { slot: SlotId | "BENCH"; playerId: string; price: number }[];
+  // Acquired players. Position is sourced from the scrape (every result row
+  // carries the player's <abbr> position), so it's known even for players not
+  // in your rankings — that's what feeds opponent position-of-need. Exact
+  // lineup *slot* (QB1 vs Superflex) is an internal choice Yahoo never exposes
+  // for rivals; the me-team's slots live in the Par Sheet, not here.
+  roster: { playerId: string; pos: Position; price: number }[];
   spent: number;
 }
 

@@ -58,7 +58,7 @@ Rankings (Player[], Tier[])      Nomination                    tierCliff()
                                                               parSheet.balance
 ```
 
-- **Pre-draft data** lives in `chrome.storage` (set via popup/options) so it
+- **Pre-draft data** lives in `chrome.storage` (set via the side panel) so it
   survives reloads and can be tweaked mid-draft.
 - **Live state** is scraped from the Yahoo draft DOM by the content script,
   diffed each tick, and emitted to the engine + a panel UI.
@@ -83,7 +83,7 @@ Par Sheet math (derived, not stored):
 1. **Build tooling:** TypeScript + esbuild (per the `sow` skill: `tsc` +
    `oxlint` + `oxfmt` + `knip` + `prek`). npm. Load unpacked from `dist/`.
 2. **Budget total:** $200 in both leagues. Hardcoded as the Par Sheet default.
-3. **Rankings:** **runtime import** into `chrome.storage.local` via the popup
+3. **Rankings:** **runtime import** into `chrome.storage.local` via the side panel
    (file picker **and** paste textarea) — this is what you'll actually use
    during drafts, and it lets you keep separate sheets per league. A committed
    `data/rankings.example.csv` is the **schema reference + test fixture** only.
@@ -112,7 +112,7 @@ Median, Ceiling, Target, Fade, Notes` (optional cols tolerated). Rankings
 - [x] `data/rankings.example.csv` schema reference
 - [x] par sheet engine + storage (pure, unit-tested)
 - [x] rankings CSV importer (parse + validate + tiers + per-league store)
-- [x] popup UI: league switcher, par-sheet editor, rankings import
+- [x] side panel UI: league switcher, par-sheet editor, rankings import
 - [ ] live scraper (content script) — pending real DOM via `?probe=1`
 - [ ] engine modules (value, tier/cliff, opponent, leverage, nomination)
 - [ ] in-draft panel + alert delivery

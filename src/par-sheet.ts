@@ -184,3 +184,49 @@ export function redistributeBalance(sheet: ParSheet): ParSheet {
   const slots = sheet.slots.map((s) => ({ ...s, par: shareById.get(s.id) ?? s.par }));
   return { ...sheet, slots };
 }
+
+// ── Live reconcile: auto-fill from the auction's sold feed ──────────────────
+
+// A player I've won, as carried on the me-team roster of a DraftState.
+// (Position comes from the scrape; price is the winning bid.)
+export interface WonPlayer {
+  playerId: string;
+  pos: Position;
+  price: number;
+}
+
+// Reconcile a Par Sheet with the live roster of players I've won: assign any
+// won player not already on the sheet into their best empty eligible slot.
+//
+// Design choices (deliberate, all testable):
+//   - Add-only. It never clears or moves a slot, so manual placements and par
+//     edits survive. (A won player already in some slot is left where you put
+//     it.) Stale manual entries are the user's to clear.
+//   - Idempotent. Running it again yields the same sheet; the panel uses
+//     reference equality to skip the save + re-render when nothing moved.
+//   - Starter-first. `slots` stay in roster order (QB1, RB1, … SF, K, DST,
+//     BN1-5), and each win takes the earliest empty slot it's eligible for —
+//     so a QB claims QB1 then Superflex before bench, a third RB claims FLEX.
+//   - Price-desc within a reconcile, so when several wins land at once the
+//     premium picks take the starter slots.
+//   - No eligible empty slot -> the win is skipped (you place it by hand).
+export function reconcileParSheet(sheet: ParSheet, roster: readonly WonPlayer[]): ParSheet {
+  const placed = new Set(
+    sheet.slots.filter((s) => s.playerId !== undefined).map((s) => s.playerId),
+  );
+  const pending = roster
+    .filter((r) => r.playerId !== "" && !placed.has(r.playerId))
+    .sort((a, b) => b.price - a.price);
+  if (pending.length === 0) {
+    return sheet;
+  }
+  let next = sheet;
+  for (const won of pending) {
+    const slot = next.slots.find((s) => s.playerId === undefined && s.eligible.includes(won.pos));
+    if (slot === undefined) {
+      continue;
+    }
+    next = assignSlot(next, slot.id, won.playerId, won.price);
+  }
+  return next;
+}

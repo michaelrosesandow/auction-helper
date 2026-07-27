@@ -4,14 +4,14 @@ import * as esbuild from "esbuild";
 
 const watch = process.argv.includes("--watch");
 
-const STATIC_ASSETS = ["manifest.json", "popup.html"];
+const STATIC_ASSETS = ["manifest.json", "sidepanel.html"];
 
 /** @type {import('esbuild').BuildOptions} */
 const options = {
   entryPoints: {
     background: "src/background.ts",
     content: "src/content.ts",
-    popup: "src/popup.ts",
+    sidepanel: "src/sidepanel.ts",
   },
   outdir: "dist",
   bundle: true,

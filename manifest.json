@@ -3,7 +3,7 @@
   "name": "Yahoo Auction Helper",
   "version": "0.1.0",
   "description": "Real-time edge for Yahoo fantasy football Superflex auction drafts: par-sheet budgeting, value alerts, tier/cliff tracking, opponent max-bid & needs, endgame leverage, and nomination strategy.",
-  "permissions": ["storage", "notifications", "scripting"],
+  "permissions": ["storage", "notifications", "scripting", "sidePanel"],
   "host_permissions": ["https://football.fantasysports.yahoo.com/*"],
   "background": {
     "service_worker": "background.js"
@@ -16,7 +16,6 @@
     }
   ],
   "action": {
-    "default_title": "Auction Helper",
-    "default_popup": "popup.html"
+    "default_title": "Auction Helper"
   }
 }

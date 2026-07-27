@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Auction Helper</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        font-family:
+          system-ui,
+          -apple-system,
+          sans-serif;
+        font-size: 13px;
+        width: 100%;
+        box-sizing: border-box;
+        overflow-y: auto;
+        margin: 0;
+        padding: 10px;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      header select {
+        flex: 1;
+      }
+      nav button {
+        padding: 6px 10px;
+        border: 1px solid #8886;
+        background: transparent;
+        border-radius: 6px 6px 0 0;
+        cursor: pointer;
+        border-bottom: none;
+      }
+      nav button.active {
+        background: #2a6df4;
+        color: #fff;
+        border-color: #2a6df4;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 6px;
+        margin: 8px 0;
+      }
+      .grid div {
+        display: flex;
+        flex-direction: column;
+        border: 1px solid #8884;
+        border-radius: 6px;
+        padding: 4px 6px;
+      }
+      .grid span {
+        font-size: 10px;
+        opacity: 0.7;
+      }
+      .grid b {
+        font-size: 14px;
+      }
+      .pos b {
+        color: #1a8a3b;
+      }
+      .neg b {
+        color: #c0392b;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 3px 4px;
+        vertical-align: top;
+        border-bottom: 1px solid #8883;
+      }
+      th {
+        font-size: 10px;
+        opacity: 0.7;
+      }
+      td input {
+        width: 100%;
+        box-sizing: border-box;
+        font-size: 12px;
+      }
+      td input[type="number"] {
+        width: 52px;
+      }
+      .var {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+      .actions {
+        display: flex;
+        gap: 6px;
+        margin: 8px 0;
+      }
+      button.primary {
+        background: #2a6df4;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        padding: 6px 10px;
+        cursor: pointer;
+      }
+      button.ghost {
+        background: transparent;
+        border: 1px solid #8886;
+        border-radius: 6px;
+        padding: 6px 10px;
+        cursor: pointer;
+      }
+      .ok {
+        color: #1a8a3b;
+      }
+      .err {
+        color: #c0392b;
+      }
+      textarea {
+        width: 100%;
+        box-sizing: border-box;
+        font-family: ui-monospace, monospace;
+        font-size: 11px;
+        height: 120px;
+      }
+      .muted {
+        opacity: 0.7;
+        font-size: 11px;
+      }
+      summary {
+        cursor: pointer;
+        padding: 2px 0;
+      }
+      .board-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        margin: 8px 0 4px;
+        flex-wrap: wrap;
+      }
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+      .chip {
+        padding: 2px 8px;
+        font-size: 11px;
+        line-height: 1.4;
+        border: 1px solid #8886;
+        border-radius: 999px;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+      }
+      .chip.active {
+        background: #2a6df4;
+        color: #fff;
+        border-color: #2a6df4;
+      }
+      .sort {
+        font-size: 11px;
+        padding: 2px 4px;
+      }
+      .board-scroll {
+        overflow-y: auto;
+        max-height: calc(100dvh - 165px);
+        min-height: 120px;
+      }
+      table.board {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      table.board td {
+        padding: 2px 4px;
+        vertical-align: middle;
+        border-bottom: 1px solid #8883;
+      }
+      table.board td.num {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+      table.board tr.sold td {
+        opacity: 0.4;
+        text-decoration: line-through;
+      }
+      .pos-tag {
+        display: inline-block;
+        min-width: 30px;
+        text-align: center;
+        font-size: 10px;
+        font-weight: 600;
+        padding: 1px 4px;
+        border-radius: 4px;
+        color: #fff;
+        margin-right: 4px;
+      }
+      .pos-QB {
+        background: #2a6df4;
+      }
+      .pos-RB {
+        background: #1a8a3b;
+      }
+      .pos-WR {
+        background: #c77700;
+      }
+      .pos-TE {
+        background: #7b2cbf;
+      }
+      .pos-K {
+        background: #6b7280;
+      }
+      .pos-DEF {
+        background: #b03a2e;
+      }
+      .tgt {
+        color: #e0a800;
+      }
+      kbd {
+        font-family: ui-monospace, monospace;
+        font-size: 11px;
+        border: 1px solid #8886;
+        border-radius: 4px;
+        padding: 0 4px;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      #live-status {
+        margin: 6px 0 2px;
+      }
+      #live-nomination {
+        margin: 6px 0;
+      }
+      #live-nomination p {
+        margin: 0;
+      }
+      table.board tr.me td {
+        background: #2a6df422;
+      }
+      .leverage {
+        margin: 6px 0;
+        padding: 6px 8px;
+        border-radius: 6px;
+        font-size: 12px;
+        line-height: 1.35;
+        border: 1px solid;
+      }
+      .leverage.ok {
+        background: #1a8a3b22;
+        border-color: #1a8a3b66;
+        color: #1a8a3b;
+      }
+      .leverage.warn {
+        background: #c7770022;
+        border-color: #c7770066;
+        color: #c77700;
+      }
+      .tiers {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin: 6px 0;
+      }
+      .tier-row {
+        font-size: 11px;
+        padding: 2px 6px;
+        border: 1px solid #8886;
+        border-radius: 999px;
+        white-space: nowrap;
+      }
+      .tier-row.cliff {
+        border-color: #c0392b;
+        color: #c0392b;
+        font-weight: 600;
+      }
+      .need-chip {
+        display: inline-block;
+        font-size: 10px;
+        padding: 0 4px;
+        margin-right: 2px;
+        border-radius: 4px;
+        background: #8886;
+        white-space: nowrap;
+      }
+      .need-chip.boxed {
+        background: #c0392b;
+        color: #fff;
+      }
+      .nom-list {
+        margin: 4px 0;
+        padding-left: 18px;
+      }
+      .nom-list li {
+        font-size: 12px;
+        margin: 2px 0;
+        line-height: 1.35;
+      }
+      .nom-tag {
+        display: inline-block;
+        font-size: 10px;
+        font-weight: 600;
+        padding: 0 5px;
+        border-radius: 4px;
+        color: #fff;
+        margin-right: 3px;
+      }
+      .nom-cold-market {
+        background: #1a8a3b;
+      }
+      .nom-poison-pill {
+        background: #b0392b;
+      }
+      .nom-scare-nominate {
+        background: #7b2cbf;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>Auction Helper</strong>
+      <select id="league"></select>
+    </header>
+
+    <nav>
+      <button id="tab-btn-par" class="active">Par Sheet</button>
+      <button id="tab-btn-rank">Rankings</button>
+      <button id="tab-btn-live">Live</button>
+      <button id="tab-btn-probe">Probe</button>
+    </nav>
+
+    <main>
+      <section id="tab-par">
+        <div id="par-summary" class="grid"></div>
+        <table>
+          <thead>
+            <tr>
+              <th>Slot</th>
+              <th>Par</th>
+              <th>Player</th>
+              <th>$</th>
+              <th class="var">Var</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="par-rows"></tbody>
+        </table>
+        <datalist id="player-list"></datalist>
+        <div class="actions">
+          <button id="reset-par" class="ghost">Reset to default</button>
+          <button id="redistribute" class="ghost">Redistribute balance</button>
+        </div>
+      </section>
+
+      <section id="tab-rank" hidden>
+        <details id="rank-import">
+          <summary class="muted">Import / replace rankings</summary>
+          <p class="muted">
+            Paste CSV (or load a file). Columns: Player Name, Position, Team, Bye, Tier, Market
+            Value, Floor, Median, Ceiling, Target, Fade, Notes.
+          </p>
+          <textarea
+            id="csv-input"
+            placeholder="Player Name,Position,Team,Tier,Market Value,Median,Ceiling,..."
+          ></textarea>
+          <div class="actions">
+            <button id="import" class="primary">Import</button>
+            <button id="load-example" class="ghost">Load example</button>
+            <label class="ghost" style="display: inline-flex; align-items: center">
+              File…
+              <input type="file" id="csv-file" accept=".csv,text/csv,text/plain" hidden />
+            </label>
+          </div>
+        </details>
+
+        <div id="rank-status"></div>
+        <div id="rank-summary" class="muted"></div>
+
+        <div id="board-area" hidden>
+          <div class="board-toolbar">
+            <div class="chips" id="pos-chips">
+              <button type="button" class="chip active" data-pos="ALL">All</button>
+              <button type="button" class="chip" data-pos="QB">QB</button>
+              <button type="button" class="chip" data-pos="RB">RB</button>
+              <button type="button" class="chip" data-pos="WR">WR</button>
+              <button type="button" class="chip" data-pos="TE">TE</button>
+              <button type="button" class="chip" data-pos="K">K</button>
+              <button type="button" class="chip" data-pos="DEF">DEF</button>
+            </div>
+            <select id="sort-select" class="sort" aria-label="Sort board">
+              <option value="tier">Tier</option>
+              <option value="value">Value $</option>
+              <option value="ceiling">Upside</option>
+              <option value="rank">Pos rank</option>
+            </select>
+          </div>
+
+          <div class="board-scroll">
+            <table class="board">
+              <tbody id="board-rows"></tbody>
+            </table>
+          </div>
+          <div id="board-count" class="muted"></div>
+        </div>
+      </section>
+
+      <section id="tab-live" hidden>
+        <div id="live-status" class="muted">Waiting for the draft tab…</div>
+        <div id="live-leverage"></div>
+        <div id="live-meta" class="grid"></div>
+        <div id="live-nomprep"></div>
+        <div id="live-nomination"></div>
+        <div id="live-tiers"></div>
+        <div class="muted" style="font-size: 11px; margin: 4px 0">Teams</div>
+        <div class="board-scroll" style="max-height: calc(100dvh - 280px); min-height: 80px">
+          <table class="board">
+            <tbody id="live-teams"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="tab-probe" hidden>
+        <p class="muted">
+          Snapshot the live Yahoo draft-room DOM so scrapers can be built offline. Open the draft
+          tab, then <b>Capture now</b>. Tip: press <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd>
+          inside the draft tab to capture without this panel open.
+        </p>
+        <div class="actions">
+          <button id="probe-capture" class="primary">Capture now</button>
+          <button id="probe-download" class="ghost" disabled>Download .json</button>
+          <button id="probe-copy" class="ghost" disabled>Copy skeleton</button>
+        </div>
+        <div id="probe-status" class="muted">No snapshot yet.</div>
+        <div id="probe-meta" class="grid"></div>
+      </section>
+    </main>
+
+    <script src="sidepanel.js"></script>
+  </body>
+</html>
