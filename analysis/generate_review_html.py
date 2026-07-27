@@ -161,6 +161,76 @@ def bar_color(s):
     return "#8a94a6"          # mid
 
 
+# ── bench-QB cost sensitivity sweep ──────────────────────────────────────────
+# The summary table ships each plan with its OWN bench QB ($4/$7/$13), so it
+# isn't a clean comparison on backup spend. Here we hold the two STARTING QBs
+# fixed and re-solve the 6 skill slots at each backup price. The bench QB adds
+# 0 starter pts (insurance only), so this is a pure budget sweep: cheaper backup
+# -> more $ for RB/WR/TE/FLEX, and the optimal *starter* plan can flip.
+import importlib.util as _ilu
+_qspec = _ilu.spec_from_file_location("_qbstrat", os.path.join(HERE, "04_qb_strategies.py"))
+_qbmod = _ilu.module_from_spec(_qspec); _qspec.loader.exec_module(_qbmod)
+_BENCH_COSTS = [13, 8, 7, 4, 3]
+def _best_qb_at(cost):
+    c = [p for p in players if p["pos"] == "QB" and p["cost"] == cost]
+    if not c:
+        return None
+    b = max(c, key=lambda p: p["pts"])
+    return (b["name"], round(b["pts"], 1))
+_BENCH_FILL = {bc: _best_qb_at(bc) for bc in _BENCH_COSTS}   # price -> (name, ins. pts)
+_T, _KDST, _BNS = 200, 2, 5
+def _sname(n):
+    t = [w for w in n.replace(".", " ").split() if w.upper() not in ("II", "III", "IV", "JR", "SR")]
+    return f"{t[0][0]}. {t[-1]}" if len(t) >= 2 else t[-1]
+_sweep = []
+for _plan in _qbmod.PLANS:
+    _sc = sum(_qbmod.find(n)["cost"] for s, n in _plan["qbs"].items() if s in _qbmod.QB_SLOTS)
+    _sp = sum(_qbmod.find(n)["pts"] for s, n in _plan["qbs"].items() if s in _qbmod.QB_SLOTS)
+    _cells = {bc: round(_sp + _qbmod.opt_skill(_T - _KDST - _sc - bc - (_BNS - 1))[0], 1)
+              for bc in _BENCH_COSTS}
+    _start = " + ".join(_sname(n) for s, n in _plan["qbs"].items() if s in _qbmod.QB_SLOTS)
+    _sweep.append({"tag": _plan["tag"], "start": _start, "sc": _sc, "cells": _cells})
+_sweep.sort(key=lambda r: r["sc"])                       # cheapest starters first
+_best_of = {bc: max(_sweep, key=lambda r: r["cells"][bc])["tag"] for bc in _BENCH_COSTS}
+_ask_tags = set(qb.get("ask_tags", []))
+_sens_head = "".join(f"<th>${bc} backup</th>" for bc in _BENCH_COSTS)
+_sens_rows = []
+for r in _sweep:
+    cls = (" rec" if r["tag"] == REC_TAG else "") + (" ask" if r["tag"] in _ask_tags else "")
+    cells = []
+    for bc in _BENCH_COSTS:
+        bcls = "best" if _best_of[bc] == r["tag"] else ""
+        cells.append(f'<td class="{bcls}">{r["cells"][bc]:.0f}</td>')
+    _sens_rows.append(
+        f'<tr class="sens{cls}"><td class="l">{r["start"]}</td><td>${r["sc"]}</td>{"".join(cells)}</tr>')
+_fill_legend = "  ·  ".join(
+    f"${bc}={_BENCH_FILL[bc][0]} ({_BENCH_FILL[bc][1]} ins. pts)"
+    for bc in _BENCH_COSTS if _BENCH_FILL[bc])
+_sens_pane = f'''
+<h3 style="margin:18px 0 4px;font-size:15px">Bench-QB cost: does a cheap backup change the answer?</h3>
+<div class="callout">
+<b>Yes — it flips the optimal starter plan.</b> The summary above lets each plan keep its own bench
+QB ($4–$13), so it isn't a clean comparison on backup spend. This table holds the two <b>starting</b>
+QBs fixed and re-solves the 6 skill slots at each backup price — a pure budget sweep (the backup adds
+0 starter pts; cheaper backup = more $ for RB/WR/TE/FLEX).<br><br>
+At a <b>$13 backup (Baker)</b> the cheap-starter plan <b>Kyler+Love</b> wins. Drop the backup to
+<b>≤$8</b> and <b>Dak+Purdy</b> takes over for good: the pricier starters are budget-starved, so each
+freed backup dollar buys them more skill pts (Kyler+Love is already on a plateau and wastes the
+savings until a tier cliff). <b>Sweet spot = $7–8 (Stroud/Shough):</b> ~95% of Baker's insurance value
+(287 vs 304 pts) at ~55% of the cost — and it unlocks the better starter plan.
+</div>
+<table class="sens"><thead><tr>
+ <th class="l">Starting QBs</th><th>start $</th>{_sens_head}
+</tr></thead><tbody>
+{chr(10).join(_sens_rows)}
+</tbody></table>
+<div class="legend">Backup at each price (best available): {_fill_legend}.
+&nbsp;<span class="best-cell"></span> = best starter pts at that backup price.
+&nbsp;Rows ordered by starting-QB spend (cheapest first); the green optimum sits at Kyler+Love for a
+$13 backup, then drops to Dak+Purdy for any backup ≤$8.</div>
+'''
+
+
 # pre-render summary rows + detail blocks
 summary_rows_html = []
 detail_blocks_html = []
@@ -257,6 +327,13 @@ html = f"""<!doctype html><html><head><meta charset="utf-8">
  .callout b{{color:#1a4fa0}}
  table.sum{{font-size:13px}}
  table.sum th,.sum td{{padding:6px 8px}}
+ table.sens{{font-size:13px}}
+ table.sens th,.sens td{{padding:6px 10px}}
+ tr.sens td{{border-bottom:1px solid #f0f0f0}}
+ tr.sens.rec td{{background:#effaf0;font-weight:600}}
+ tr.sens.ask td{{background:#fdf6e3}}
+ td.best{{background:#d4f4dc !important;font-weight:700;color:#1a7f37}}
+ .best-cell{{display:inline-block;width:11px;height:11px;background:#d4f4dc;border:1px solid #1a7f37;border-radius:2px;vertical-align:middle;margin:0 3px}}
  tr.sum td{{border-bottom:1px solid #f0f0f0}}
  tr.sum.rec td{{background:#effaf0;font-weight:600}}
  tr.sum.ask td{{background:#fdf6e3}}
@@ -346,7 +423,7 @@ open question is which 2 START. For each plan we fix the QBs, then solve <b>exac
 DP, not the old hill-climb which got stuck on tier cliffs) for the best 6 non-QB starters within the
 leftover budget. Headline = projected starter points (bench fixed: 1 QB + $1 scrubs, starter-only objective). The 3rd
 QB is a $7–13 backup (Stroud/Baker tier under the recency curve) — it adds 0 starter pts here; its value is bye/injury
-coverage + trade equity. The full bench-aware optimizer (03_optimize, optionality-weighted bench) puts the net
+coverage + trade equity (and cheapening it flips the optimal starter pair — see the bench-QB table below). The full bench-aware optimizer (03_optimize, optionality-weighted bench) puts the net
 starter-pts tax at ~0, since the backup's insurance value offsets its cost.<br><br>
 <b>The elite-QB caveat (read this before trusting any of these numbers).</b> Gretch projections are
 <b>single-point season medians</b> — they undersell elite QBs' <b>week-winning ceilings</b> (the
@@ -369,6 +446,8 @@ fragile. The model can't see ceiling or job-security risk — it only prices the
 </tbody></table>
 <div class="legend">QB pts = the two starting QBs combined. &nbsp;rest pts = best 6 non-QB starters
 (RB1/RB2/WR1/WR2/TE/FLEX) fit to the leftover budget. &nbsp;Δ = starter pts behind the best plan.</div>
+
+{_sens_pane}
 
 <h3 style="margin:18px 0 4px;font-size:15px">Full rosters (click to expand)</h3>
 {chr(10).join(detail_blocks_html)}
