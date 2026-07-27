@@ -5,6 +5,11 @@
 Decoupling market-rank (cost) from projection (value) is what surfaces real
 edges: projection-rank < ADP-rank  =>  market undervalues them.
 
+COST is a RECENCY-WEIGHTED median (YEAR_WEIGHTS): this room's valuations have
+shifted structurally since 2021 (mid-QB $ 9->18, mid-RB $ 22->14), so the flat
+5-yr median (~2023) lagged the trend. Weighting recent years pulls the curve
+toward 2024 behavior. See CHECKPOINT item #7.
+
 Sources:
   ADP   ~/Downloads/Avant League History - Historical ADP - Fantasy Pros (2).csv
   PROJ  ~/Downloads/Ben Gretch 2026 Projections (7_23).xlsx
@@ -17,6 +22,13 @@ from common import load_projections, points, LeagueConfig
 
 ADP_CSV = os.path.expanduser("~/Downloads/Avant League History - Historical ADP - Fantasy Pros (2).csv")
 HIST_YEARS = list(range(2021, 2026))
+# Recency weights: this room's valuations SHIFTED structurally since 2021
+# (mid-QB $ 9->18, mid-RB $ 22->14 over 2021-25 -- see CHECKPOINT item #7). A flat
+# 5-yr median lands on 2023 (the middle obs of 5) and lags the trend. Weighting
+# recent years more pulls the curve toward 2024 behavior (total weight 11;
+# weighted-median index 5 ~= the 2024 obs for a monotonic rise). Pass {y:1} to
+# cost_curve() to recover the old flat median.
+YEAR_WEIGHTS = {2021: 1, 2022: 1, 2023: 2, 2024: 3, 2025: 4}
 
 def norm(name):
     s = name.lower()
@@ -39,15 +51,18 @@ def load_adp():
                              name=r["Player_Name"].strip(), paid=paid))
     return rows
 
-def cost_curve(rows):
-    """monotonic median price by (pos, position-rank) on historical years."""
+def cost_curve(rows, weights=YEAR_WEIGHTS):
+    """monotonic (weighted-)median price by (pos, position-rank) on historical
+    years. `weights` maps year->int; each paid price is replicated by its year's
+    weight, so the median leans toward recent years (recency-corrected). Pass
+    {y:1} for the flat 5-yr median."""
     d=defaultdict(lambda: defaultdict(list))
     for r in rows:
         if r["year"] in HIST_YEARS and r["paid"]>0:
-            d[r["pos"]][r["prank"]].append(r["paid"])
+            d[r["pos"]][r["prank"]].extend([r["paid"]] * weights.get(r["year"], 1))
     cost={}
     for pos in ["QB","RB","WR","TE"]:
-        med={k: sorted(v)[len(v)//2] for k,v in d[pos].items()}
+        med={k: sorted(v)[len(v)//2] for k,v in d[pos].items() if v}
         best=float("inf")
         for k in sorted(med): best=min(best,med[k]); med[k]=best   # monotonic
         cost[pos]=med

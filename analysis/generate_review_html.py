@@ -78,6 +78,53 @@ for p in sorted(players, key=lambda x: (x["pos"], x["rank"])):
         "note": p.get("my_note") or "",
     })
 
+# ── cost curves tab data (flat 5yr vs recency-weighted, + year-by-year) ──────
+import build_2026 as _b
+import statistics as _st
+from collections import defaultdict as _dd
+_adp = _b.load_adp()
+_cflat = _b.cost_curve(_adp, {y: 1 for y in _b.HIST_YEARS})
+_cwgt = _b.cost_curve(_adp, _b.YEAR_WEIGHTS)
+_cyr = _dd(lambda: _dd(list))
+for _r in _adp:
+    if _r["year"] in _b.HIST_YEARS and _r["paid"] > 0:
+        _cyr[(_r["pos"], _r["prank"])][_r["year"]].append(_r["paid"])
+_cp26 = {(p["pos"], p["rank"]): p["name"] for p in players}
+
+def _curve_table(pos):
+    ranks = sorted(set(list(_cflat[pos]) + [rk for (pp, rk) in _cp26 if pp == pos]))
+    ranks = [r for r in ranks if r <= 36]
+    h = ['<table class="curve"><thead><tr><th>rk</th>'
+         + "".join(f"<th>'{str(y)[2:]}</th>" for y in _b.HIST_YEARS)
+         + '<th>flat</th><th class="wgt">wgt</th><th>Δ</th>'
+         + '<th class="l">2026 player</th></tr></thead><tbody>']
+    for rk in ranks:
+        yc = []
+        for y in _b.HIST_YEARS:
+            v = [x for x in _cyr.get((pos, rk), {}).get(y, []) if x > 0]
+            yc.append(f"{int(_st.median(v))}" if v else "·")
+        f_ = _cflat[pos].get(rk); w_ = _cwgt[pos].get(rk)
+        d = (w_ - f_) if (f_ and w_) else None
+        cls = "up" if (d or 0) > 0 else ("down" if (d or 0) < 0 else "")
+        ds = f"{d:+d}" if d else ""
+        nm = _cp26.get((pos, rk), "")
+        h.append(f'<tr><td>{rk}</td>' + "".join(f'<td>{c}</td>' for c in yc)
+                 + f'<td class="muted">{f_ or "·"}</td><td class="wgt">{w_ or "·"}</td>'
+                 + f'<td class="{cls}">{ds}</td><td class="l">{nm}</td></tr>')
+    h.append('</tbody></table>')
+    return "".join(h)
+
+_curves_pane = (
+    '<div class="callout"><b>Cost curves — flat 5-yr median vs the live recency-weighted prediction.</b><br>'
+    "This league's valuations shifted structurally 2021→25: mid-QB $ rose ~2× (9→18 at QB13–24) while "
+    "mid/elite RB $ FELL (22→14 at RB13–24) — a budget rotation out of RB into QB/WR, not inflation. "
+    "The flat 5-yr median lands on 2023 and lags the trend; "
+    "<b>YEAR_WEIGHTS = 21:1, 22:1, 23:2, 24:3, 25:4</b> pulls the curve toward 2024. "
+    '<b class="wgt">wgt</b> = predicted 2026 $ (drives the par sheet). '
+    '<span class="up">Δ&gt;0</span> repriced up (QB/WR); <span class="down">Δ&lt;0</span> down (RB = new edge).</div>'
+    + "".join(f'<h3 class="cvh">{pos}</h3>{_curve_table(pos)}' for pos in ["QB", "RB", "WR", "TE"])
+)
+
 # ── QB strategies tab data ───────────────────────────────────────────────────
 qb = json.load(open(os.path.join(HERE, "out", "qb_strategies.json")))
 strategies = sorted(qb["strategies"], key=lambda s: -s["starter_pts"])
@@ -238,21 +285,25 @@ html = f"""<!doctype html><html><head><meta charset="utf-8">
  tr.det.qbslot td{{background:#eef6ff}}
  tr.det.skill td{{color:#222}}
  .legend{{font-size:12px;color:#666;margin-top:6px}}
+ table.curve{{font-size:12.5px}} table.curve th,table.curve td{{padding:3px 7px}}
+ .wgt{{color:#1a73e8;font-weight:700}} .up{{color:#c0392b;font-weight:600}} .down{{color:#27ae60;font-weight:600}}
+ h3.cvh{{margin:16px 0 2px;font-size:15px}}
 </style></head><body><div class="wrap">
 <h1>2026 Draft Prep — Avant Superflex ($200, 12-team)</h1>
-<p class="sub">Cost = this league's historical SF price for a player's ADP rank (2021–25 median).
-&nbsp;Proj = Gretch pts (Avant scoring). &nbsp;Two tabs below.</p>
+<p class="sub">Cost = this league's historical SF price for a player's ADP rank
+(2021–25 <b>recency-weighted</b> median — see the Cost Curves tab). &nbsp;Proj = Gretch pts (Avant scoring). &nbsp;Three tabs below.</p>
 
 <div class="tabbar">
  <button class="active" data-t="review">Price Review</button>
  <button data-t="qb">QB Strategies</button>
+ <button data-t="curves">Cost Curves</button>
 </div>
 
 <!-- ═══════════════ TAB 1: PRICE REVIEW ═══════════════ -->
 <div id="review" class="pane active">
 <div class="note">⚠ Predicted $ is a <b>rank-based median with wide spread</b> (a QB20 historically cost $4–16).
 Where Pred $ diverges a lot from a player's recent actual $, trust your judgment over the model —
-this league bids names above their rank (e.g. Baker was $33 as QB7 in '25; now QB20 → model says $6).<br>
+this league bids names above their rank (e.g. Baker was $33 as QB7 in '25; now QB20 → recency curve says $13, was $6 flat).<br>
 <b>Proj Rk</b> = rank by projected pts (vs the market's <b>26 Rk</b> = ADP rank). <b>My Rk</b> = your rank from
 <code>my_rankings.csv</code> (blue). <b>↑ ceiling</b> = you rank a guy far above his projection (upside the median
 misses); <b>↓ fade</b> = the reverse. Pred $ shown <span style="color:#b7791f">amber</span> = your my_price override.
@@ -293,8 +344,10 @@ Edit <code>my_rankings.csv</code> then <code>python3 run.py --skip-build</code>.
 QB1+SF; the 3rd is cheap bench insurance for bye/injury). So every row below carries 3 QBs — the only
 open question is which 2 START. For each plan we fix the QBs, then solve <b>exactly</b> (0/1 knapsack
 DP, not the old hill-climb which got stuck on tier cliffs) for the best 6 non-QB starters within the
-leftover budget. Headline = projected starter points (bench = $1 scrubs, BENCH_W=0). Carrying that 3rd
-$6 bench QB costs ~9 starter pts vs a 2-QB build — the insurance tax.<br><br>
+leftover budget. Headline = projected starter points (bench fixed: 1 QB + $1 scrubs, starter-only objective). The 3rd
+QB is a $7–13 backup (Stroud/Baker tier under the recency curve) — it adds 0 starter pts here; its value is bye/injury
+coverage + trade equity. The full bench-aware optimizer (03_optimize, optionality-weighted bench) puts the net
+starter-pts tax at ~0, since the backup's insurance value offsets its cost.<br><br>
 <b>The elite-QB caveat (read this before trusting any of these numbers).</b> Gretch projections are
 <b>single-point season medians</b> — they undersell elite QBs' <b>week-winning ceilings</b> (the
 Allen/Lamar/Hurts/Daniels games that win a matchup outright). So every gap is the cost <i>if everyone
@@ -321,6 +374,12 @@ fragile. The model can't see ceiling or job-security risk — it only prices the
 {chr(10).join(detail_blocks_html)}
 
 </div>
+
+<!-- ═══════════════ TAB 3: COST CURVES ═══════════════ -->
+<div id="curves" class="pane">
+{_curves_pane}
+</div>
+
 </div>
 
 <script>

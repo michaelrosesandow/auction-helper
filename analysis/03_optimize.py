@@ -6,15 +6,35 @@ and single-slot rank-swaps (which reallocate budget between positions) converge
 to the optimum. Multiple restarts + archetype constraints.
 
 Roster (15): QB1,RB1,RB2,WR1,WR2,TE,FLEX,SF,K,DST + 5 bench.
-Objective: starter pts + 0.25×bench pts (starters win weeks; bench = insurance).
+Objective: starter pts + optionality-weighted bench pts (see BENCH_NEED).
 Budget $200; K+DST sink $2.
+
+Bench model (replaces the flat BENCH_W=0 / =0.25 knobs — BOTH were wrong):
+  BENCH_W=0     forced stars-and-scrubs (bench had no opportunity cost → all $1).
+  BENCH_W=0.25  stuffed the bench with cheap QBs (raw-pts distortion: a 5th QB
+                never plays but 0.25×300 > 0.25×60 scrub WR).
+  Fix: value a bench player as INSURANCE = pts × P(needed) × (season share),
+  where P(needed) = 1 − retention^n for n starters ahead (attrition-study
+  priors, analysis/attrition_study.py) and ~0.5 season is realized on a
+  mid-season promotion. AND require EXACTLY 1 bench QB (3 QBs total: 2 start in
+  QB1+SF + 1 backup) — the user's roster rule: 2 QBs is too much bye/injury
+  risk unless you pay for 2 elites (shown suboptimal on medians). The exactly-1
+  target also kills stuffing (can't exceed 1), so the backup QB now carries its
+  honest optionality weight instead of the old weight-0 hack.
 """
 from __future__ import annotations
 import json, random
 from common import LeagueConfig
 
-BENCH_W = 0.0   # bench = $1 baseline (Davenport surplus-to-deploy); optimize STARTERS
 BUDGET = 200
+# Bench optionality weight by position = pts × weight. Derived from attrition
+# priors: P(needed) = 1 − retention^n for n starters ahead, ×0.5 season realized.
+# RB 1−.78²=.39×.5=.20 | WR 1−.70²=.51×.5=.25 | TE 1−.73=.27×.5=.14
+# QB ≈1−.84²=.29 (injury to 1 of 2 starters)×.5=.15 — a backup's value is real
+# but modest; the exactly-1 rule below means it can't be stuffed (no >1).
+BENCH_NEED = {"RB": 0.20, "WR": 0.25, "TE": 0.14, "QB": 0.15}
+BENCH_QBS = 1   # EXACTLY N bench QBs: 2 start (QB1+SF) + 1 backup = 3 total.
+                # Insurance rule (user): 2 QBs is too risky unless 2 elites.
 FIXED = {"K":1, "DST":1}                     # $2 sunk
 SKILL_BUDGET = BUDGET - sum(FIXED.values())  # $198 for 13 skill slots
 STARTERS = ["QB1","RB1","RB2","WR1","WR2","TE","FLEX","SF"]
@@ -34,13 +54,11 @@ def load_players():
 def roster_cost(roster):
     return sum(roster[s]["cost"] for s in ALLSLOTS)
 
-def roster_obj(roster):
-    sp = sum(roster[s]["pts"] for s in STARTERS)
-    bp = sum(roster[s]["pts"] for s in BENCH)
-    return sp + BENCH_W*bp
-
 def starter_pts(roster): return sum(roster[s]["pts"] for s in STARTERS)
-def bench_pts(roster):   return sum(roster[s]["pts"] for s in BENCH)
+def bench_pts(roster):   return sum(roster[s]["pts"] for s in BENCH)            # raw, for display
+def bench_value(roster):                                                  # optionality-weighted (objective's bench term)
+    return sum(BENCH_NEED.get(roster[s]["pos"], 0.0) * roster[s]["pts"] for s in BENCH)
+def roster_obj(roster):  return starter_pts(roster) + bench_value(roster)
 
 def seed(by_pos, cheap=True):
     """A feasible roster: cheap seed fills each slot with the cheapest eligible
@@ -62,8 +80,15 @@ def seed(by_pos, cheap=True):
         # cheap: pick near the tail (high rank). index = len-2 to leave some slack
         idx = len(by_pos[ELIG[s][0]])-3 if cheap else 8
         p = pick(ELIG[s], idx); used.add(id(p)); roster[s]=p
+    # bench: exactly BENCH_QBS backup QB(s) + the rest cheap WR/RB/TE depth
+    bench_qbs=0
     for s in BENCH:
-        p = pick(BENCH_ELIG, len(by_pos["WR"])-3); used.add(id(p)); roster[s]=p
+        if bench_qbs < BENCH_QBS:
+            p = pick(["QB"], len(by_pos["QB"])-3)                # cheap backup QB
+        else:
+            p = pick([pos for pos in BENCH_ELIG if pos!="QB"], len(by_pos["WR"])-3)
+        used.add(id(p)); roster[s]=p
+        if p["pos"]=="QB": bench_qbs+=1
     return roster
 
 TOPK = 24  # candidate ranks per position for starter search
@@ -76,7 +101,22 @@ def cand_players(by_pos, elig):
         if lst[-1]["cost"]<=2: out += [lst[-1]]   # + a $1 punt option
     return out
 
-def W(s): return 1.0 if s in STARTERS else BENCH_W
+def W(s, p):
+    """Objective weight of player `p` in slot `s`: 1.0 for starters, the
+    position's optionality weight for bench (see BENCH_NEED)."""
+    return 1.0 if s in STARTERS else BENCH_NEED.get(p["pos"], 0.0)
+
+def _bench_cap_ok(r):
+    return sum(1 for s in BENCH if r[s]["pos"] == "QB") == BENCH_QBS
+
+def _bench_qb_ok(r, slot, p):
+    """Per-move guard: would placing `p` in bench `slot` keep bench-QB count
+    <= BENCH_QBS? (Blocks EXCEEDING. The exactly-=BENCH_QBS requirement is
+    enforced globally by _bench_cap_ok at feasibility, so a move that drops the
+    count below target is allowed here and restored/filtered later.)"""
+    if slot not in BENCH or p["pos"] != "QB": return True
+    others = sum(1 for s in BENCH if s != slot and r[s]["pos"] == "QB")
+    return others < BENCH_QBS
 
 def climb(r, by_pos, constraint):
     """1-opt (all slots) + 2-opt rebudget (starter pairs), incremental eval."""
@@ -87,12 +127,13 @@ def climb(r, by_pos, constraint):
         # ── 1-opt ──
         best=None; best_obj=base_obj
         for s in ALLSLOTS:
-            cur=r[s]; w=W(s)
+            cur=r[s]; cur_w=W(s,cur); cur_contrib=cur_w*cur["pts"]
             for p in cand_players(by_pos, ELIG.get(s,BENCH_ELIG)):
                 if id(p) in ids and id(p)!=id(cur): continue   # used elsewhere
+                if not _bench_qb_ok(r, s, p): continue          # bench-QB cap
                 dc=p["cost"]-cur["cost"]
                 if base_cost+dc>SKILL_BUDGET: continue
-                obj=base_obj + w*(p["pts"]-cur["pts"])
+                obj=base_obj - cur_contrib + W(s,p)*p["pts"]
                 if obj<=best_obj+1e-9: continue
                 r[s]=p
                 ok = constraint(r)
@@ -125,7 +166,9 @@ def climb(r, by_pos, constraint):
 def _repair(r, by_pos):
     for s in sorted(BENCH, key=lambda z:-r[z]["cost"]):
         if roster_cost(r)<=SKILL_BUDGET: break
+        if r[s]["pos"]=="QB": continue                              # preserve exactly-BENCH_QBS
         for pos in BENCH_ELIG:
+            if pos=="QB" and not _bench_qb_ok(r, s, {"pos":"QB"}): continue   # cap
             for p in by_pos[pos]:
                 if p["cost"]<=1 and all(id(r[sl])!=id(p) for sl in ALLSLOTS if sl!=s):
                     r[s]=p; break
@@ -134,6 +177,7 @@ def _repair(r, by_pos):
     return r
 
 def optimize(by_pos, constraint=lambda r: True, restarts=12, kicks=40):
+    con = lambda r: _bench_cap_ok(r) and constraint(r)    # fold in the bench-QB cap
     best=None
     for rs in range(restarts):
         r = seed(by_pos, cheap=(rs%2==0))
@@ -141,8 +185,8 @@ def optimize(by_pos, constraint=lambda r: True, restarts=12, kicks=40):
             s=random.choice(ALLSLOTS)
             p=random.choice(cand_players(by_pos,ELIG.get(s,BENCH_ELIG)))
             if all(id(r[sl])!=id(p) for sl in ALLSLOTS if sl!=s): r[s]=p
-        r=_repair(r,by_pos); r=climb(r,by_pos,constraint)
-        if constraint(r) and roster_cost(r)<=SKILL_BUDGET:
+        r=_repair(r,by_pos); r=climb(r,by_pos,con)
+        if con(r) and roster_cost(r)<=SKILL_BUDGET:
             if best is None or roster_obj(r)>roster_obj(best): best=dict(r)
         if best is None: continue
         for _ in range(kicks):                 # basin hopping
@@ -151,8 +195,8 @@ def optimize(by_pos, constraint=lambda r: True, restarts=12, kicks=40):
                 s=random.choice(STARTERS)
                 p=random.choice(cand_players(by_pos,ELIG[s]))
                 if all(id(rk[sl])!=id(p) for sl in ALLSLOTS if sl!=s): rk[s]=p
-            rk=_repair(rk,by_pos); rk=climb(rk,by_pos,constraint)
-            if constraint(rk) and roster_cost(rk)<=SKILL_BUDGET and roster_obj(rk)>roster_obj(best):
+            rk=_repair(rk,by_pos); rk=climb(rk,by_pos,con)
+            if con(rk) and roster_cost(rk)<=SKILL_BUDGET and roster_obj(rk)>roster_obj(best):
                 best=dict(rk)
     return best
 
@@ -218,7 +262,8 @@ def main():
     summary={label:dict(starter=round(starter_pts(r)), bench=round(bench_pts(r)),
                         cost=roster_cost(r)+2, obj=round(roster_obj(r)),
                         par=dict(par_sheet(r)[1])) for label,r in results.items()}
-    summary["_bench_weight"]=BENCH_W
+    summary["_bench_model"]=dict(bench_need=BENCH_NEED, bench_qbs=BENCH_QBS,
+        note="bench = pts×optionality (P(needed)×0.5season); exactly 1 bench QB (3 total)")
     json.dump(summary, open("out/par_sheet.json","w"), indent=2)
     print("\nsaved out/par_sheet.json")
 

@@ -221,7 +221,7 @@ def main():
         print(f"{r['name']:<62}{r['qb_cost']:>5}{r['qb_starter_pts']:>7.0f}"
               f"{r['non_qb_starter_pts']:>7.0f}{r['starter_pts']:>7.0f}{r['total_cost']:>5}{mark}")
     print(f"\n(all builds carry 3 QBs: 2 start + 1 cheap bench. EXACT skill solver. "
-          f"BENCH_W=0. best = {best:.0f})")
+          f"starter-only objective (bench fixed: 1 QB + $1 scrubs). best = {best:.0f})")
 
     out = {"strategies": results, "bench_weight": 0.0, "best_starter_pts": round(best, 1),
            "rec_tag": REC_TAG, "ask_tags": sorted(ASK_TAGS),

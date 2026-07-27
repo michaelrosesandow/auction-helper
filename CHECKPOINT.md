@@ -127,12 +127,14 @@ standalone artifact until wired into `src/engine/`. When ported in, re-tool the
   **Too choppy** (sparse buckets → Dak $1 / Mahomes $21 nonsense). Kept for
   reference; **rank-based (build_2026) is the live cost model.**
 - **`build_2026.py` — THE cost pipeline.** Within-position **ADP rank** → this
-  league's SF price (2021–25 monotonic medians); matches projections by
-  normalized name; writes **`out/players.json`** (`name,pos,rank,cost,pts`).
-  Re-run this if inputs change.
+  league's SF price via a **recency-weighted monotonic median** (`YEAR_WEIGHTS
+  = {21:1,22:1,23:2,24:3,25:4}` — see "Cost basis" below); matches projections
+  by normalized name; writes **`out/players.json`** (`name,pos,rank,cost,pts`).
+  Re-run this if inputs change. Pass `{y:1}` to `cost_curve()` for the flat median.
 - **`03_optimize.py` — hill-climbing optimizer.** 1-opt (all slots) + 2-opt
-  rebudget (starter pairs, **incremental** eval) + basin-hopping. Maximizes
-  **starter points** (bench weight 0 — Davenport $1-baseline). Outputs
+  rebudget (starter pairs, **incremental** eval) + basin-hopping. Objective =
+  starter pts + **optionality-weighted bench** (`BENCH_NEED`, see the
+  "Objective" methodology bullet below) with a ≤1 bench-QB cap. Outputs
   `out/par_sheet.json` + prints optimal + 4 archetypes. **~35–40 s runtime.**
 - **`04_qb_strategies.py` — QB roster-construction comparison.** For each QB
   plan it FIXES the QBs, then solves EXACTLY (0/1 knapsack DP) for the best 6
@@ -151,28 +153,56 @@ standalone artifact until wired into `src/engine/`. When ported in, re-tool the
 ### Key methodology decisions (don't re-litigate without reason)
 
 - **Cost basis = within-position ADP rank → historical SF price** (monotonic
-  medians). Rejected alternatives: projection-rank (misprices Tua/Stroud/
-  Rodgers — famous players whose projection dipped), ADP-value (sparse/choppy),
-  the user's OLS price model (collinear features → predictions rise with rank).
+  **recency-weighted** medians, `YEAR_WEIGHTS={21:1,22:1,23:2,24:3,25:4}`). The
+  room's valuations SHIFTED structurally 2021→25 (mid-QB $ 9→18, mid-RB $ 22→14
+  over the window — a budget rotation out of RB into QB/WR, not uniform
+  inflation); a flat 5-yr median lands on 2023 and lags the trend, so recent
+  years are weighted up. Net effect: mid-QBs repriced UP (Baker $6→$13, Goff
+  $18→$20), RBs DOWN across the board (Bijan $67→$59, Kyren $26→$21, Swift
+  $10→$5) — so RBs are now the better values. Rejected alternatives:
+  projection-rank (misprices Tua/Stroud/Rodgers — famous players whose
+  projection dipped), ADP-value (sparse/choppy), the user's OLS price model
+  (collinear features → predictions rise with rank), and 2024-25-only (n=2/rank,
+  too noisy — weighted median is the sweet spot).
 - **1-QB ADP → SF league gap is handled** by pricing the rank against this
   league's SF history (premium baked in). Only the within-position *order* is
   taken from ADP; the absolute QB position shift doesn't matter.
-- **Objective = maximize STARTER points, bench = $1** (BENCH_W=0). An earlier
-  BENCH_W=0.25 made the optimizer stuff the bench with QBs (raw-points
-  distortion — a 5th QB never plays). Verified global optimum: OPTIMAL =
-  STARS&SCRUBS = HERO-RB all converge to **2073 starter pts**.
+- **Objective = starter pts + optionality-weighted bench.** A flat `BENCH_W` is
+  wrong both ways: `=0` forced stars-and-scrubs (bench all $1); `=0.25` stuffed
+  the bench with cheap QBs (a 5th QB never plays but 0.25×300 > 0.25×60 scrub WR).
+  Fix: bench value = `pts × P(needed)` where `P(needed)=1−retention^n` for n
+  starters ahead (attrition priors) × ~0.5 season realized →
+  `BENCH_NEED={RB:.20, WR:.25, TE:.14, QB:.15}`, AND require **exactly 1 bench
+  QB** (3 QBs total: 2 start in QB1+SF + 1 backup) — the user's roster rule (2
+  QBs is too much bye/injury risk unless you pay for 2 elites, shown
+  suboptimal on medians). Exactly-1 also kills stuffing (can't exceed 1), so the
+  backup QB carries its honest optionality weight instead of a weight-0 hack.
+  Verified: every optimal/max-bid build carries exactly 3 QBs; the optimizer
+  picks a **$6 value backup** (Shough/Baker tier), and starter pts hold at
+  **2036** (the $6 backup laterally displaces a $6 bench WR — ~0 insurance tax).
+  Starter-only optimum was **2073 pts**; under the bench-aware objective
+  OPTIMAL = **2036 starter + ~190 bench-value = 2225 obj**. (`ceiling` data is
+  still blank in `players.json`, so median pts stand in for the `ceiling` term;
+  swap in real ceilings when available.)
 - **Verified ranks:** the 2026 ADP-only ranks in the historical file exactly
   match the real FantasyPros 2026 ADP ordering (Stroud really is ~QB23 across
   Yahoo/Sleeper/RTSports). So cheap-mid-QB values are real consensus, not noise.
 
 ### Final par sheet (see RESULTS.md)
 
-QB1 $17, SF $11, RB1 $59, RB2 $17, WR1 $54, WR2 $6, TE $18, FLEX $10, K $1,
-DST $1, BN1–5 $1 each (=$199, round to $200). Strategy: **don't pay up for an
-elite QB** (two mid-QBs ~$11–17 project within ~30 pts of Allen/Lamar for 1/3
-the price); spend elite $ on **RB1 + WR1** (~$55–60 each); **TE** target TE2–3
+**OLD (BENCH_W=0, stars-and-scrubs — superseded):** QB1 $17, SF $11, RB1 $59,
+RB2 $17, WR1 $54, WR2 $6, TE $18, FLEX $10, K $1, DST $1, BN1–5 $1.
+
+**NEW (optionality bench model, exactly-1 bench QB):** QB1 $6, RB1 $10, RB2 $17,
+WR1 $36, WR2 $15, TE $18, FLEX $59, SF $17, K $1, DST $1, BN1 $6 (WR), BN2 $1
+(RB), BN3 $6 (WR), BN4 $6 (**backup QB**, Shough/Baker tier), BN5 $1 (RB)
+(=$200). Every build rosters **3 QBs** (2 start + 1 backup) per the user's
+insurance rule. The model spends ~$20 on cheap WR/RB depth + a $6 backup QB
+instead of punting all 5 bench slots to $1. Strategy unchanged: **don't pay up
+for an elite QB** (two mid-QBs ~$11–17 ≈ Allen/Lamar within ~30 pts for 1/3 the
+cost); spend elite $ on **RB1 + WR1** (~$55–60 each); **TE** target TE2–3
 (~$18–22) or punt to $1–4 (Bowers $32 is worst value); fill RB2/WR2/FLEX with
-$6–17 mid-tier values; bench = $1.
+$6–17 mid-tier values; bench = ~$6 upside WR/RB + $1 handcuffs.
 
 ### Caveats a fresh session MUST carry
 
@@ -227,7 +257,7 @@ that excludes him (the pivot); above it, pivot. Two columns:
 - **RAW** = median points only. **REAL** = median × realization. Same fast 1-opt
   climb; relative comparison is what's sound. Read `gap = REAL − market`: + room
   to spend, − even at market the pivot wins. It's a CEILING, not a target.
-  Example (BENCH_W=0.25, realization on): Gibbs mkt $59 → ceiling ~$65.
+  Example (optionality bench model, realization on): Gibbs mkt $59 → ceiling ~$67.
 - **BUG fixed this session:** the anchored target must be looked up IN the
   supplied pool so its pts match the pool's realization — otherwise an unrealized
   target in a realized pool is credited full median and inflates the bid ~$20.
@@ -238,23 +268,40 @@ that excludes him (the pivot); above it, pivot. Two columns:
   WR1). Fix = try all eligible slots, take best.
 
 **3. Lessons that change the par sheet / objective** (carried forward):
-- **`BENCH_W=0` was forcing stars-and-scrubs** into existence (bench had no
-  opportunity cost → model punted 5 slots to $1). `05_max_bid.py` now defaults
-  `BENCH_W=0.25`. The TS objective must value bench (realization + positive
-  bench weight) or it reproduces this artifact.
-- **SF QB underpricing CONFIRMED** (the RESULTS caveat, now measured): Mayfield
-  $6/304 (50 ppd!), Murray $17/328, Stafford $18/327 — the cost model prices
-  QB13–24 like backups when 24 QBs start in 12-team SF. Optimizer stacks two
-  cheap elite QBs and spends the phantom savings overpaying RBs. **Fix lives in
-  `build_2026.py`'s cost curve**, not the optimizer. Until fixed, max-bid /
-  inflation outputs run optimistic.
+- **Bench is now valued as optionality, not raw points** (the flat-`BENCH_W`
+  contradiction is RESOLVED — see the "Objective" methodology bullet above). A
+  bench player's value = `pts × P(needed)×0.5season`; **exactly 1 bench QB is
+  required** (3 QBs total — the user's insurance rule). Both `03_optimize.py` and
+  `05_max_bid.py` use it (no more stars-and-scrubs, no more bench-QB stuffing,
+  and no more 2-QB rosters). The TS objective (the realization/max-bid port item)
+  must use the same model + the exactly-1 bench-QB rule.
+- **Mid-QB "underpricing" was half stale-curve, half real inefficiency — now
+  split.** The old flat median undersold QB13–24 because it pooled 2021–22 (when
+  the room paid $3–9 for mid-QBs) with 2024–25 ($14–20). Recency-weighting
+  (above) corrects the staleness: Baker $6→$13, Love $11→$13. **Residual:** mid-QBs
+  are STILL top pts/$ values even repriced (Stroud $7/287, Darnold $7/278, Baker
+  $13/304) — that's a genuine market inefficiency (24 QBs start in 12-team SF;
+  the room still pays backup-ish money for starters), i.e. EDGE to exploit, not
+  a bug. Max-bid/inflation outputs are now trustworthy on the QB axis.
 - **Elite bellcow RBs are the STABLE tier, not the fragile one** (role 80%).
   Don't add an extra injury discount to a Gibbs/Bijan — pay-up is safe on
   attrition grounds; the ceiling is what justifies the price.
 
 ### Open / next steps ➡️
 
-1. **Reconcile the `BENCH_W` contradiction — both flat weights are wrong (DO THIS FIRST).** The doc currently says two conflicting things about bench value in the objective: (a) `BENCH_W=0` forces stars-and-scrubs (no bench opportunity cost → model punts 5 slots to $1), so `05_max_bid.py` defaults `BENCH_W=0.25`; vs (b) `BENCH_W=0.25` makes the optimizer stuff the bench with QBs (raw-points distortion — a 5th QB never plays), so it was reverted to 0. **Both are correct that the OTHER weight is broken; neither flat weight on raw projected points is the right bench model.** The fix: value bench as *insurance/optionality*, not raw median — a bench player's value is `ceiling × P(needed)` (they don't start unless a starter attrites), using the realization priors from the attrition study above, PLUS a **bench-QB cap** (max 1 QB on bench; a 5th QB has zero playable value). Sub-tasks: (i) replace the two conflicting statements in this doc with one coherent note; (ii) re-check `05_max_bid.py`'s rosters for the bench-QB-stuffing artifact and swap its `BENCH_W=0.25` default for the optionality/realization model + bench-QB cap; (iii) carry that same bench-valuation into the TS solver objective (the "Port realization + max-bid" item below) so it reproduces neither artifact.
+1. **✅ DONE — bench-valuation contradiction reconciled (+ exactly-1 bench QB).**
+   Both flat weights were wrong (`=0` → stars-and-scrubs; `=0.25` → bench-QB
+   stuffing). Replaced with a per-position optionality model: bench value =
+   `pts × P(needed)×0.5season` (`BENCH_NEED={RB:.20, WR:.25, TE:.14, QB:.15}`) +
+   **exactly 1 bench QB required** (`BENCH_QBS=1`; 3 QBs total — the user's
+   insurance rule: 2 QBs is too risky unless 2 elites), in `03_optimize.py`
+   (`W(s,p)`, `_bench_cap_ok` (==), `_bench_qb_ok`, seed/repair preserve it) and
+   `05_max_bid.py` (inherits via imports). Verified: every optimal/max-bid build
+   carries exactly 3 QBs (a $6 value backup); starter pts hold at 2036. (i) ✅ doc
+   unified below; (ii) ✅ max-bid uses the new model + exactly-1 rule; (iii) ⏳
+   the TS `optCompletion` port (item 3) must implement the same `benchValue` +
+   exactly-1 bench-QB rule when it lands — `solver.ts` has no bench slots yet,
+   so nothing to change there for now.
 
 2. **User is reviewing `review.html`.** Likely wants either an editable
    "adjusted price" column in the HTML, or will hand back a list of repriced
@@ -278,9 +325,17 @@ that excludes him (the pivot); above it, pivot. Two columns:
    rule (see bug note) or bids will be inflated. *(The solver foundation landed
    this session — `analysis/ts-solver/solver.ts`; this item = layering
    realization priors + a max-bid calc on top of it.)*
-7. **Fix the SF QB cost curve in `build_2026.py`** — reprice QB13–24 to SF
-   starter demand (24 QBs start). This is the highest-leverage input fix;
-   unblocks trustworthy max-bid/inflation numbers.
+7. **✅ DONE — recency-weighted the cost model** (reframed from "fix SF QB
+   curve"). The flat 5-yr median was stale, not wrong: the room's mid-QB prices
+   rose ~2× since 2021 while mid/elite RB prices FELL (a structural budget
+   rotation, not inflation — RB13-24 $22→$14, QB13-24 $9→$18). Fixed via
+   `YEAR_WEIGHTS={21:1,22:1,23:2,24:3,25:4}` in `build_2026.py` (weighted
+   median, monotonic-enforced). Mid-QBs up (Baker $6→$13), RBs down (Bijan
+   $67→$59, Kyren $26→$21) — RBs are now the better values. New OPTIMAL =
+   **2058 starter pts** (was 2036; cheaper RBs freed budget); starting-QB spend
+   UP ($23→$43: Dak+Kyler) since mid-QBs are less of a steal and RBs are cheap.
+   Gibbs max-bid gap widened to +$29 (cheaper-RB pivot). Residual mid-QB value
+   is real edge, not a bug. Rejected 2024-25-only (n=2/rank, too noisy).
 8. **Fix mid-tier anchoring in `05_max_bid.py`** — try all eligible starter
    slots for the target, take the best, so value flags on WR2/RB2 types are
    reliable, not just elites.

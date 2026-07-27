@@ -16,11 +16,15 @@ Same optimizer for both sides, so the crossover is meaningful even though 1-opt
 isn't globally optimal (relative comparison is what matters for a bid ceiling).
 
 Reports max_bid under two objectives:
-  RAW  : median points only          (current model, BENCH_W=0)
-  REAL : median x realization factor (attrition study /tmp/attrition2.py)
+  RAW  : median points only          (no attrition haircut)
+  REAL : median x realization factor (attrition study analysis/attrition_study.py)
          tiers by position-rank approximating snap-share cohorts:
          QB .76/.50 | RB bellcow .80 / shared-WH .76 / committee .71 / depth .60
          WR .77/.63 | TE .73/.53
+
+Both objectives use the optionality bench model from 03_optimize.py (no flat
+BENCH_W): bench value = pts×P(needed), with EXACTLY 1 bench QB required (3 QBs
+total: 2 start + 1 backup) — inherited via the imports below.
 
 Edit TARGETS. --all computes for every projected starter.
 """
@@ -32,7 +36,8 @@ _spec = importlib.util.spec_from_file_location("opt", os.path.join(_HERE, "03_op
 opt = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(opt)
 sys.modules["opt"] = opt
 from opt import (load_players, roster_cost, roster_obj, seed, _repair,
-                 cand_players, W, ALLSLOTS, ELIG, BENCH_ELIG, STARTERS)
+                 cand_players, W, ALLSLOTS, ELIG, BENCH_ELIG, STARTERS,
+                 _bench_qb_ok, _bench_cap_ok)
 
 ORIG_BUDGET = opt.SKILL_BUDGET
 PRIMARY = {"QB": "QB1", "RB": "RB1", "WR": "WR1", "TE": "TE", "K": "K", "DEF": "DST"}
@@ -59,12 +64,13 @@ def climb1(r, pool, lock=None):
         best, best_obj = None, base_obj
         for s in ALLSLOTS:
             if s == lock: continue
-            cur, w = r[s], W(s)
+            cur = r[s]; cur_w = W(s, cur); cur_contrib = cur_w * cur["pts"]
             for p in cand_players(pool, ELIG.get(s, BENCH_ELIG)):
                 if id(p) in ids and id(p) != id(cur): continue
+                if not _bench_qb_ok(r, s, p): continue       # bench-QB cap
                 dc = p["cost"] - cur["cost"]
                 if base_cost + dc > ORIG_BUDGET: continue
-                obj = base_obj + w * (p["pts"] - cur["pts"])
+                obj = base_obj - cur_contrib + W(s, p) * p["pts"]
                 if obj > best_obj + 1e-9: best_obj, best = obj, (s, p)
         if best: r[best[0]] = best[1]
         else: return r
@@ -78,7 +84,7 @@ def fast_opt(pool, restarts, kicks, lock=None, anchor=None):
         r = _repair(r, pool)
         if lock: r[lock] = anchor
         r = climb1(r, pool, lock)
-        if (not lock or r[lock] is anchor) and roster_cost(r) <= ORIG_BUDGET:
+        if (not lock or r[lock] is anchor) and roster_cost(r) <= ORIG_BUDGET and _bench_cap_ok(r):
             v = roster_obj(r)
             if v > best: best, best_r = v, dict(r)
         if best_r is None: continue
@@ -92,7 +98,7 @@ def fast_opt(pool, restarts, kicks, lock=None, anchor=None):
             rk = _repair(rk, pool)
             if lock: rk[lock] = anchor
             rk = climb1(rk, pool, lock)
-            if (not lock or rk[lock] is anchor) and roster_cost(rk) <= ORIG_BUDGET:
+            if (not lock or rk[lock] is anchor) and roster_cost(rk) <= ORIG_BUDGET and _bench_cap_ok(rk):
                 v = roster_obj(rk)
                 if v > best: best, best_r = v, dict(rk)
     return best_r
@@ -135,7 +141,6 @@ def realize_pool(by_pos):
 
 def main():
     random.seed(42)
-    opt.BENCH_W = 0.25   # bench has opportunity cost (punishes starter-punting)
     P, by_pos = load_players()
     real_pos = realize_pool(by_pos)
     by_name = {p["name"]: p for p in P if p.get("pts")}
