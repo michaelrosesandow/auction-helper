@@ -1,0 +1,364 @@
+"""Generate review.html: two tabs.
+
+  Tab 1 "Price Review"   — predicted $ per player WITH this league's history,
+                           so implausible predictions (Baker $6 after a $33 yr)
+                           are visible & overridable. Client-side filter + sort.
+  Tab 2 "QB Strategies"  — roster-construction comparison: for each QB plan,
+                           fix the QBs and re-optimize the rest of the roster,
+                           then rank by projected starter points. Answers
+                           "does going cheap at QB actually win?"
+
+Run:  python3 generate_review_html.py   →  review.html
+(Regenerates from out/players.json + out/qb_strategies.json + league history.)
+"""
+import csv, os, re, json
+from common import load_projections, points, LeagueConfig
+
+HERE = os.path.dirname(__file__)
+HIST = os.path.expanduser("~/Downloads/Avant League History - Historical ADP - Fantasy Pros (2).csv")
+OUT = os.path.join(HERE, "review.html")
+
+
+def norm(name):
+    s = re.sub(r"[.'']", "", name.lower())
+    return " ".join(t for t in s.split() if t not in ("jr", "sr", "ii", "iii", "iv", "v", "i")).strip()
+
+
+# ── historical price/rank per player, by year ────────────────────────────────
+hist = {}
+with open(HIST) as fh:
+    for r in csv.DictReader(fh):
+        try:
+            y = int(r["Year"]); rk = int(r["Position Rank"])
+            paid = int(r["Auction Paid"].replace("$", ""))
+        except (ValueError, KeyError):
+            continue
+        if paid <= 0:
+            continue
+        hist.setdefault(norm(r["Player_Name"]), {})[y] = {"rk": rk, "$": paid}
+
+players = json.load(open(os.path.join(HERE, "out", "players.json")))
+players = [p for p in players if p.get("pts")]
+
+# projection-implied rank within position (fallback if apply_overrides wasn't run)
+from collections import defaultdict
+_pr = defaultdict(list)
+for p in players:
+    _pr[p["pos"]].append(p)
+for lst in _pr.values():
+    lst.sort(key=lambda p: -(p.get("pts") or 0))
+    for i, p in enumerate(lst, 1):
+        p.setdefault("proj_rank", i)
+
+rows = []
+for p in sorted(players, key=lambda x: (x["pos"], x["rank"])):
+    h = hist.get(norm(p["name"]), {})
+    last = max(h) if h else None
+    last_paid = h[last]["$"] if last else None
+    last_rk = h[last]["rk"] if last else None
+    hstr = "  ".join(f"{y}:${h[y]['$']}(rk{h[y]['rk']})" for y in sorted(h, reverse=True))
+    flag = ""
+    if last_paid is not None and p["cost"] is not None:
+        if abs(p["cost"] - last_paid) >= 12:
+            flag = "⚠ big change"
+    sig = flag
+    if p.get("ceiling") == "up":
+        sig = (sig + " " if sig else "") + "↑ ceiling"
+    elif p.get("ceiling") == "down":
+        sig = (sig + " " if sig else "") + "↓ fade"
+    rows.append({
+        "name": p["name"], "pos": p["pos"], "rk": p["rank"],
+        "projrk": p.get("proj_rank"), "myrk": p.get("my_rank"),
+        "adp": round(p.get("adp", 0)) if p.get("adp") else None,
+        "pred": p["cost"], "ovr": p.get("model_cost"),
+        "pts": p["pts"],
+        "ppd": round(p["pts"] / p["cost"], 2) if p["cost"] else None,
+        "last": last_paid, "lastrk": last_rk, "hist": hstr,
+        "flag": flag, "ceil": p.get("ceiling") or "", "sig": sig,
+        "note": p.get("my_note") or "",
+    })
+
+# ── QB strategies tab data ───────────────────────────────────────────────────
+qb = json.load(open(os.path.join(HERE, "out", "qb_strategies.json")))
+strategies = sorted(qb["strategies"], key=lambda s: -s["starter_pts"])
+max_pts = max(s["starter_pts"] for s in strategies)
+REC_TAG = qb.get("rec_tag")
+best_pts = round(max_pts)   # top plan under the "carry 3 QBs" constraint
+
+
+def qb_short(s):
+    starters = [r for r in s["roster"] if r["slot"] in ("QB1", "SF") and r["role"] == "QB-plan"]
+    return " + ".join(f"{r['name']}" for r in starters)
+
+
+def bench_qb_str(s):
+    if not s["bench_qbs"]:
+        return "—"
+    return ", ".join(f"{b['name']} (${b['cost']})" for b in s["bench_qbs"])
+
+
+def delta_str(pts):
+    d = round(pts) - best_pts
+    return "best" if d == 0 else f"{d:+.0f}"
+
+
+def bar_color(s):
+    if s["tag"] == REC_TAG:
+        return "#1a7f37"      # green - median optimum
+    if s.get("is_ask"):
+        return "#b7791f"      # amber - your proposed builds
+    if s["starter_pts"] >= best_pts - 25:
+        return "#2e7d32"      # near-best
+    if s["starter_pts"] <= best_pts - 70:
+        return "#c0392b"      # costly
+    return "#8a94a6"          # mid
+
+
+# pre-render summary rows + detail blocks
+summary_rows_html = []
+detail_blocks_html = []
+for s in strategies:
+    pct = s["starter_pts"] / max_pts * 100
+    rec = " rec" if s["tag"] == REC_TAG else ""
+    ask = " ask" if s.get("is_ask") else ""
+    summary_rows_html.append(
+        f'<tr class="sum{rec}{ask}">'
+        f'<td class="l">{s["name"]}</td>'
+        f'<td class="l muted">{qb_short(s)}</td>'
+        f'<td>${s["qb_cost"]}</td>'
+        f'<td>{s["qb_starter_pts"]:.0f}</td>'
+        f'<td>{s["non_qb_starter_pts"]:.0f}</td>'
+        f'<td class="big">{s["starter_pts"]:.0f}</td>'
+        f'<td>{delta_str(s["starter_pts"])}</td>'
+        f'<td>${s["total_cost"]}</td>'
+        f'<td class="l muted sm">{bench_qb_str(s)}</td></tr>'
+    )
+    # detail block
+    roster_rows = []
+    for r in s["roster"]:
+        tag = ""
+        if r["role"] == "QB-plan":
+            tag = " qbslot"
+        elif r["slot"] in ("RB1", "RB2", "WR1", "WR2", "TE", "FLEX", "SF"):
+            tag = " skill"
+        pts = f'{r["pts"]:.1f}' if r["pts"] else "—"
+        rk = f'rk{r["rank"]}' if r["rank"] else ""
+        roster_rows.append(
+            f'<tr class="det{tag}">'
+            f'<td class="slot">{r["slot"]}</td>'
+            f'<td class="l">{r["name"]}</td>'
+            f'<td>{r["pos"]}</td>'
+            f'<td class="muted">{rk}</td>'
+            f'<td>${r["cost"]}</td>'
+            f'<td>{pts}</td></tr>'
+        )
+    open_attr = " open" if (s["tag"] == REC_TAG or s.get("is_ask")) else ""
+    star = ""
+    if s["tag"] == REC_TAG:
+        star = ' <span class="star">★ median optimum</span>'
+    elif s.get("is_ask"):
+        star = ' <span class="askstar">★ your ask</span>'
+    detail_blocks_html.append(
+        f'<details class="build{rec}{ask}"{open_attr}>'
+        f'<summary><b>{s["starter_pts"]:.0f}</b> starter pts &nbsp;·&nbsp; '
+        f'<span class="muted">{s["name"]}{star}</span>'
+        f'<span class="bar"><span style="width:{pct:.1f}%;background:{bar_color(s)}"></span></span>'
+        f'</summary>'
+        f'<div class="buildbody">'
+        f'<div class="kv">QB spend <b>${s["qb_cost"]}</b> &nbsp;·&nbsp; '
+        f'starting QB pts <b>{s["qb_starter_pts"]:.0f}</b> &nbsp;·&nbsp; '
+        f'non-QB starter pts <b>{s["non_qb_starter_pts"]:.0f}</b> &nbsp;·&nbsp; '
+        f'budget left for RB/WR/TE/FLEX <b>${s["free_budget"]}</b> &nbsp;·&nbsp; '
+        f'total <b>${s["total_cost"]}</b></div>'
+        + ('<div class="kv ins">bench QB insurance: ' + bench_qb_str(s) +
+           ' <span class="muted">(costs $ vs a $1 scrub; 0 starter pts — value is '
+           'bye/injury coverage + trade equity)</span></div>' if s["bench_qbs"] else "")
+        + '<table class="det"><thead><tr><th>slot</th><th class="l">player</th>'
+          '<th>pos</th><th>rk</th><th>$</th><th>pts</th></tr></thead><tbody>'
+        + "".join(roster_rows)
+        + '</tbody></table></div></details>'
+    )
+
+
+html = f"""<!doctype html><html><head><meta charset="utf-8">
+<title>2026 Draft Prep — Avant SF</title>
+<style>
+ body{{font:14px -apple-system,sans-serif;margin:0;color:#222;background:#fff}}
+ .wrap{{max-width:1180px;margin:0 auto;padding:20px}}
+ h1{{font-size:20px;margin:0 0 2px}} .sub{{color:#666;margin:0 0 14px}}
+ .tabbar{{display:flex;gap:0;border-bottom:2px solid #e3e3e3;margin-bottom:18px;position:sticky;top:0;background:#fff;z-index:5}}
+ .tabbar button{{font:600 14px -apple-system;padding:10px 18px;border:none;background:none;cursor:pointer;
+   border-bottom:3px solid transparent;color:#666}}
+ .tabbar button.active{{color:#1a73e8;border-bottom-color:#1a73e8}}
+ .tabbar button:hover{{color:#1a73e8}}
+ .pane{{display:none}} .pane.active{{display:block}}
+ .bars button{{font:13px;padding:5px 12px;margin-right:6px;border:1px solid #ccc;
+   border-radius:6px;background:#fff;cursor:pointer}}
+ .bars button.active{{background:#1a73e8;color:#fff;border-color:#1a73e8}}
+ table{{border-collapse:collapse;width:100%;margin-top:12px}}
+ th,td{{padding:5px 8px;text-align:right;border-bottom:1px solid #eee;white-space:nowrap}}
+ th{{cursor:pointer;background:#f7f7f7;position:sticky;top:0}}
+ th.l,td.l{{text-align:left}} td.flag{{color:#c0392b;font-weight:600}}
+ td.myrk{{color:#1a73e8;font-weight:700}}
+ td.ovr{{color:#b7791f;font-weight:700}}
+ td.sig{{color:#c0392b;font-weight:600;white-space:normal;max-width:120px}}
+ tr.hide{{display:none}} .low{{color:#27ae60}} .high{{color:#c0392b}}
+ input{{padding:5px 8px;width:200px;border:1px solid #ccc;border-radius:6px}}
+ .note{{background:#fffbe6;border:1px solid #f0d000;padding:10px;border-radius:6px;margin:10px 0;font-size:13px}}
+ /* QB tab */
+ .callout{{background:#eaf4ff;border:1px solid #b6d4fe;border-radius:8px;padding:12px 14px;margin:8px 0 16px;font-size:13px;line-height:1.5}}
+ .callout b{{color:#1a4fa0}}
+ table.sum{{font-size:13px}}
+ table.sum th,.sum td{{padding:6px 8px}}
+ tr.sum td{{border-bottom:1px solid #f0f0f0}}
+ tr.sum.rec td{{background:#effaf0;font-weight:600}}
+ tr.sum.ask td{{background:#fdf6e3}}
+ td.big{{font-weight:700;font-size:14px}} td.big{{color:#1a7f37}}
+ tr.sum.rec td.big{{color:#1a7f37}}
+ .muted{{color:#888;font-weight:400}} .sm{{font-size:11px}}
+ details.build{{border:1px solid #e3e3e3;border-radius:8px;margin:8px 0;padding:0 12px;background:#fcfcfd}}
+ details.build.rec{{border-color:#1a7f37;background:#f4fbf5}}
+ details.build.ask{{border-color:#b7791f;background:#fefcf3}}
+ details.build summary{{cursor:pointer;padding:10px 0;font-size:14px;list-style:none}}
+ details.build summary::-webkit-details-marker{{display:none}}
+ details.build summary::before{{content:"▸";display:inline-block;width:14px;color:#999;transition:transform .15s}}
+ details.build[open] summary::before{{transform:rotate(90deg)}}
+ details.build.rec summary::before{{color:#1a7f37}}
+ details.build.ask summary::before{{color:#b7791f}}
+ .star{{color:#1a7f37;font-weight:700}} .askstar{{color:#b7791f;font-weight:700}}
+ .bar{{display:inline-block;width:240px;max-width:40%;height:14px;background:#eee;border-radius:4px;
+   vertical-align:middle;margin-left:14px;overflow:hidden}}
+ .bar span{{display:block;height:100%}}
+ .buildbody{{padding:0 0 12px}}
+ .kv{{font-size:12.5px;margin:6px 0;color:#444}}
+ .kv.ins{{color:#8a6d3b}}
+ table.det{{margin-top:6px;font-size:12.5px}}
+ table.det th{{background:#f7f7f7;font-weight:600}}
+ tr.det td.slot{{color:#888;font-weight:600;width:46px}}
+ tr.det.qbslot td{{background:#eef6ff}}
+ tr.det.skill td{{color:#222}}
+ .legend{{font-size:12px;color:#666;margin-top:6px}}
+</style></head><body><div class="wrap">
+<h1>2026 Draft Prep — Avant Superflex ($200, 12-team)</h1>
+<p class="sub">Cost = this league's historical SF price for a player's ADP rank (2021–25 median).
+&nbsp;Proj = Gretch pts (Avant scoring). &nbsp;Two tabs below.</p>
+
+<div class="tabbar">
+ <button class="active" data-t="review">Price Review</button>
+ <button data-t="qb">QB Strategies</button>
+</div>
+
+<!-- ═══════════════ TAB 1: PRICE REVIEW ═══════════════ -->
+<div id="review" class="pane active">
+<div class="note">⚠ Predicted $ is a <b>rank-based median with wide spread</b> (a QB20 historically cost $4–16).
+Where Pred $ diverges a lot from a player's recent actual $, trust your judgment over the model —
+this league bids names above their rank (e.g. Baker was $33 as QB7 in '25; now QB20 → model says $6).<br>
+<b>Proj Rk</b> = rank by projected pts (vs the market's <b>26 Rk</b> = ADP rank). <b>My Rk</b> = your rank from
+<code>my_rankings.csv</code> (blue). <b>↑ ceiling</b> = you rank a guy far above his projection (upside the median
+misses); <b>↓ fade</b> = the reverse. Pred $ shown <span style="color:#b7791f">amber</span> = your my_price override.
+Edit <code>my_rankings.csv</code> then <code>python3 run.py --skip-build</code>.</div>
+<div class="bars">
+ <button class="active" data-f="ALL">All</button>
+ <button data-f="QB">QB</button><button data-f="RB">RB</button>
+ <button data-f="WR">WR</button><button data-f="TE">TE</button>
+ &nbsp; <input id="q" placeholder="filter by name…">
+</div>
+<table id="t"><thead><tr>
+ <th class="l" data-k="name">Player</th><th data-k="pos">Pos</th>
+ <th data-k="rk">26 Rk</th><th data-k="projrk">Proj Rk</th><th data-k="myrk">My Rk</th><th data-k="adp">ADP</th>
+ <th data-k="pred">Pred $</th><th data-k="pts">Proj Pts</th><th data-k="ppd">Pts/$</th>
+ <th data-k="last">'25 $</th><th data-k="lastrk">'25 Rk</th>
+ <th class="l">History (recent first)</th><th>Signals</th>
+</tr></thead><tbody>
+{chr(10).join(
+ f'<tr data-pos="{r["pos"]}">' + (f' data-note="{r["note"]}"' if r["note"] else "") + 
+ f'<td class="l">{r["name"]}</td><td>{r["pos"]}</td>'
+ f'<td>{r["rk"]}</td><td>{r["projrk"] or ""}</td>'
+ f'<td class="myrk">{r["myrk"] or ""}</td>'
+ f'<td>{r["adp"] if r["adp"] else ""}</td>'
+ + (f'<td class="ovr" title="model ${r["ovr"]} (your my_price override)">${r["pred"]}</td>'
+    if r["ovr"] is not None else f'<td>${r["pred"]}</td>')
+ + f'<td>{r["pts"]}</td><td>{r["ppd"]}</td>'
+ f'<td>{r["last"] if r["last"] is not None else ""}</td>'
+ f'<td>{r["lastrk"] if r["lastrk"] is not None else ""}</td>'
+ f'<td class="l" style="font-size:11px;color:#888">{r["hist"]}</td>'
+ f'<td class="sig">{r["sig"]}</td></tr>' for r in rows)}
+</tbody></table>
+</div>
+
+<!-- ═══════════════ TAB 2: QB STRATEGIES ═══════════════ -->
+<div id="qb" class="pane">
+<div class="callout">
+<b>How to read this.</b> You said every build you draft will carry <b>3 QBs</b> (2 start in
+QB1+SF; the 3rd is cheap bench insurance for bye/injury). So every row below carries 3 QBs — the only
+open question is which 2 START. For each plan we fix the QBs, then solve <b>exactly</b> (0/1 knapsack
+DP, not the old hill-climb which got stuck on tier cliffs) for the best 6 non-QB starters within the
+leftover budget. Headline = projected starter points (bench = $1 scrubs, BENCH_W=0). Carrying that 3rd
+$6 bench QB costs ~9 starter pts vs a 2-QB build — the insurance tax.<br><br>
+<b>The elite-QB caveat (read this before trusting any of these numbers).</b> Gretch projections are
+<b>single-point season medians</b> — they undersell elite QBs' <b>week-winning ceilings</b> (the
+Allen/Lamar/Hurts/Daniels games that win a matchup outright). So every gap is the cost <i>if everyone
+hits their median</i>. The cheap-QB floor carries the opposite risk: these guys are cheap for a reason.
+Jones (injury), Rodgers (may retire), Geno (job risk), Ward/Young (rookie variance), Mendoza (likely a
+backup) — the medians optimistically assume they all start. The aggro-cheap rows (~$11 of QB) tie the
+$76 Daniels+Hurts plan on paper, but that assumes 2 of your 3 punt QBs actually deliver starting
+minutes. Bet now on the price (several will rise with preseason clarity); just know the projections are
+fragile. The model can't see ceiling or job-security risk — it only prices the median.
+</div>
+
+<table class="sum"><thead><tr>
+ <th class="l">Strategy</th><th class="l">QB starters</th>
+ <th>QB $</th><th>QB pts</th><th>rest pts</th>
+ <th>Total starter pts</th><th>Δ vs best</th><th>$ spent</th>
+ <th class="l">bench QB</th>
+</tr></thead><tbody>
+{chr(10).join(summary_rows_html)}
+</tbody></table>
+<div class="legend">QB pts = the two starting QBs combined. &nbsp;rest pts = best 6 non-QB starters
+(RB1/RB2/WR1/WR2/TE/FLEX) fit to the leftover budget. &nbsp;Δ = starter pts behind the best plan.</div>
+
+<h3 style="margin:18px 0 4px;font-size:15px">Full rosters (click to expand)</h3>
+{chr(10).join(detail_blocks_html)}
+
+</div>
+</div>
+
+<script>
+/* ── tabs ── */
+document.querySelectorAll('.tabbar button').forEach(b=>b.onclick=()=>{{
+  document.querySelectorAll('.tabbar button').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
+  b.classList.add('active');
+  document.getElementById(b.dataset.t).classList.add('active');
+}});
+
+/* ── price-review filter + sort (sort by clicked header's column index) ── */
+const rows=[...document.querySelectorAll('#t tbody tr')];
+let sortIdx=4, sortAsc=false, lastIdx=null;   /* default: Pred $ desc */
+function resort(){{
+  const tb=document.querySelector('#t tbody');
+  rows.sort((a,b)=>{{
+    let av=(a.cells[sortIdx]||{{}}).textContent||'', bv=(b.cells[sortIdx]||{{}}).textContent||'';
+    let an=parseFloat(av.replace(/[^0-9.-]/g,'')), bn=parseFloat(bv.replace(/[^0-9.-]/g,''));
+    let c = (isNaN(an)||isNaN(bn)) ? av.trim().localeCompare(bv.trim()) : an-bn;
+    return sortAsc?c:-c;
+  }}); rows.forEach(r=>tb.appendChild(r));
+}}
+document.querySelectorAll('#review th[data-k]').forEach(th=>th.onclick=()=>{{
+  const i=th.cellIndex;
+  sortAsc = (i===lastIdx) ? !sortAsc : false; lastIdx=i; sortIdx=i; resort(); filter();
+}});
+function filter(){{
+  const f=document.querySelector('#review .bars .active').dataset.f;
+  const q=document.getElementById('q').value.toLowerCase();
+  rows.forEach(r=>{{ const nm=r.cells[0].textContent.toLowerCase();
+    r.classList.toggle('hide', (f!=='ALL'&&r.dataset.pos!==f)||!nm.includes(q)); }}); }}
+document.querySelectorAll('#review .bars button').forEach(b=>b.onclick=()=>{{
+  document.querySelectorAll('#review .bars button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active'); filter(); }});
+document.getElementById('q').oninput=filter;
+resort(); filter();
+</script></body></html>"""
+
+open(OUT, "w").write(html)
+print(f"wrote {OUT} ({len(rows)} players, {len(strategies)} QB strategies)")

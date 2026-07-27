@@ -13,3 +13,11 @@ build/
 # OS / editor
 .DS_Store
 *.log
+
+# Analysis: personal data + generated/cache (the .py scripts ARE committed)
+analysis/_nfl/
+analysis/my_rankings.csv
+analysis/*.bak
+analysis/__pycache__/
+analysis/out/
+analysis/review.html
