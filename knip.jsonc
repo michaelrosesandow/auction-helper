@@ -7,4 +7,5 @@
     "src/types.ts",
     "src/**/*.test.ts",
   ],
+  "ignore": ["analysis/ts-solver/**"],
 }

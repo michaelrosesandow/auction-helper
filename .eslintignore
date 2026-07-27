@@ -1,0 +1,2 @@
+# Isolated TS benchmark (runs via esbuild, not part of the extension toolchain)
+analysis/ts-solver/
