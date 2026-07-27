@@ -254,35 +254,37 @@ that excludes him (the pivot); above it, pivot. Two columns:
 
 ### Open / next steps ➡️
 
-1. **User is reviewing `review.html`.** Likely wants either an editable
+1. **Reconcile the `BENCH_W` contradiction — both flat weights are wrong (DO THIS FIRST).** The doc currently says two conflicting things about bench value in the objective: (a) `BENCH_W=0` forces stars-and-scrubs (no bench opportunity cost → model punts 5 slots to $1), so `05_max_bid.py` defaults `BENCH_W=0.25`; vs (b) `BENCH_W=0.25` makes the optimizer stuff the bench with QBs (raw-points distortion — a 5th QB never plays), so it was reverted to 0. **Both are correct that the OTHER weight is broken; neither flat weight on raw projected points is the right bench model.** The fix: value bench as *insurance/optionality*, not raw median — a bench player's value is `ceiling × P(needed)` (they don't start unless a starter attrites), using the realization priors from the attrition study above, PLUS a **bench-QB cap** (max 1 QB on bench; a 5th QB has zero playable value). Sub-tasks: (i) replace the two conflicting statements in this doc with one coherent note; (ii) re-check `05_max_bid.py`'s rosters for the bench-QB-stuffing artifact and swap its `BENCH_W=0.25` default for the optionality/realization model + bench-QB cap; (iii) carry that same bench-valuation into the TS solver objective (the "Port realization + max-bid" item below) so it reproduces neither artifact.
+
+2. **User is reviewing `review.html`.** Likely wants either an editable
    "adjusted price" column in the HTML, or will hand back a list of repriced
    players to feed the optimizer. (The `out/prices_2026.csv` hook in
    `02_value.py` expects `name,position,predicted_price` if used, but the live
    path is `build_2026.py` → `players.json` — wire overrides there.)
-2. **~~Wire the par sheet into `DEFAULT_WEIGHTS`~~ → SUPERSEDED.** The static
+3. **~~Wire the par sheet into `DEFAULT_WEIGHTS`~~ → SUPERSEDED.** The static
    transcription is replaced by a *live* re-solve: port `optCompletion` into
    `src/engine/` (content-script poll loop) → live par sheet + roster-grounded
    `nominationSuggest` / `valueAlert` ceiling. The TS solver foundation is done
    & validated; the wiring is the next step. *(Issue 1: pivot /
    regenerate-optimal-roster-on-the-fly when you miss a target.)*
-3. **Ceiling-tilted variant** — force one top-5 QB, re-optimize, quantify the
+4. **Ceiling-tilted variant** — force one top-5 QB, re-optimize, quantify the
    starter-pts cost; produces a Plan B par sheet. Offered, not done.
-4. Generate the `prices_2026.csv`-style market-value feed the live **value-alerts**
+5. Generate the `prices_2026.csv`-style market-value feed the live **value-alerts**
    engine (`src/engine/alerts.ts` `valueAlert`) will consume in-draft.
-5. **Port realization + max-bid into the TS real-time solver.** Apply the
+6. **Port realization + max-bid into the TS real-time solver.** Apply the
    realization priors above as a haircut on projected pts in the objective; add
    a max-bid calc per nominated target ("bid on this guy now" / ceiling + gap vs
    live inflation-adjusted market). Keep the anchor-value-consistent-with-pool
    rule (see bug note) or bids will be inflated. *(The solver foundation landed
    this session — `analysis/ts-solver/solver.ts`; this item = layering
    realization priors + a max-bid calc on top of it.)*
-6. **Fix the SF QB cost curve in `build_2026.py`** — reprice QB13–24 to SF
+7. **Fix the SF QB cost curve in `build_2026.py`** — reprice QB13–24 to SF
    starter demand (24 QBs start). This is the highest-leverage input fix;
    unblocks trustworthy max-bid/inflation numbers.
-7. **Fix mid-tier anchoring in `05_max_bid.py`** — try all eligible starter
+8. **Fix mid-tier anchoring in `05_max_bid.py`** — try all eligible starter
    slots for the target, take the best, so value flags on WR2/RB2 types are
    reliable, not just elites.
-8. **Team-stack constraint (issue 2).** `players.json` has no NFL `team` field
+9. **Team-stack constraint (issue 2).** `players.json` has no NFL `team` field
    but `common.py load_projections()` already reads it — thread `team` through
    `build_2026.py`, then add a **starters-only max-2-per-team** constraint to
    the optimizer (hard cap or soft penalty). Lower priority; quantify the
