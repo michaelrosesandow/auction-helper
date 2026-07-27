@@ -1,6 +1,9 @@
 # Checkpoint — Yahoo Auction Helper
 
-**Last updated:** 2026-07-25 (session: pre-draft strategy analysis in `analysis/`)
+**Last updated:** 2026-07-27 (session: TS knapsack solver port + latency validation; live-draft engine committed)
+
+> **Git state:** live-draft engine = `c2f2838`; TS solver port + benchmark = `01ff413`.
+> Working tree clean; `tsc` / `oxlint` / `knip` / 116 tests / `build` all green.
 **Purpose:** Let a fresh session resume this work without rediscovering the
 Yahoo draft-room DOM, the probe architecture, or the par-sheet modeling
 pipeline. Read this, then `PLAN.md` (scope) and `AGENTS.md` (conventions).
@@ -31,9 +34,16 @@ remains: the live **"my turn" DOM detector** (needs one mock-draft capture to
 wire `nominationSuggest` to actually fire on your turn) and
 `chrome.notifications` push delivery.
 
-**Separately,** the 2026 par sheet has been derived in `analysis/` (rank-based
-SF cost model + hill-climb optimizer). It is **not yet wired into
-`src/par-sheet.ts` `DEFAULT_WEIGHTS`** — that's an open next step.
+**Separately,** the 2026 par sheet is derived in `analysis/` (rank-based SF
+cost model + hill-climb optimizer), and the exact 0/1-knapsack solver
+(`opt_skill`) has been **ported to TypeScript** and validated for live use.
+**Decision: run the re-solve in the content script — no local server** (a full
+per-tick re-solve is ~0.9 ms, ~0.04% of the 2 s poll). **Next big step:** lift
+the solver into `src/engine/` as `optCompletion` (exclude sold, lock filled
+slots, re-budget) so the par sheet becomes *live* and `nominationSuggest` /
+`valueAlert` ceilings become roster-grounded — this supersedes the old
+"transcribe into `DEFAULT_WEIGHTS`" plan. Details: "Live re-solve" under the
+`analysis/` section.
 
 ---
 
@@ -56,10 +66,31 @@ Load unpacked from **`dist/`**. Rankings are runtime data (side panel import).
 ## Pre-draft strategy analysis (`analysis/`)
 
 Pure-stdlib **Python** (no deps, ships nothing) that derives the optimal 2026
-par sheet. Output par allocation is meant to be transcribed into
-`src/par-sheet.ts` `DEFAULT_WEIGHTS`. See `analysis/RESULTS.md` for the
-final writeup. The user's old price-prediction model (Google Apps Script OLS)
-is **broken and intentionally not used** — see "Rejected approaches" below.
+par sheet, **plus a TypeScript port of the exact knapsack solver** for live
+in-draft re-optimization (see "Live re-solve" below). See `analysis/RESULTS.md`
+for the final writeup. The user's old price-prediction model (Google Apps
+Script OLS) is **broken and intentionally not used** — see "Rejected
+approaches" below.
+
+### Live re-solve — TS solver port (`analysis/ts-solver/`)
+
+The Python `opt_skill` (exact 0/1 knapsack over RB/WR/TE starter slots) is
+**ported to TS** as `solver.ts` (`posFrontier` / `buildFronts` / `optSkill`),
+with O(1) back-pointer reconstruction. Validated bit-identical to the Python
+reference (same projected pts + rosters at budgets 165/140/120).
+
+**Decision — run it live in the content script, no local server.** A full
+per-tick re-solve (rebuild frontiers excluding sold + solve, 425-player pool)
+measures **~0.9 ms in Node** — ~9× faster than Python and ~0.04% of the 2 s
+poll interval (a ~2,300:1 margin). A local server would add a failure mode and
+break the zero-dep / load-unpacked property for zero latency gain.
+
+`bench.ts` is the timing harness (run via esbuild — see its header). The whole
+dir is **intentionally excluded** from the project's tsc/oxlint/knip toolchain
+(`.eslintignore` + `tsconfig.json` exclude + `knip.jsonc` ignore) — it's a
+standalone artifact until wired into `src/engine/`. When ported in, re-tool the
+`!` non-null assertions (the solver uses them; project oxlint forbids
+`no-non-null-assertion`).
 
 ### League config (Avant)
 
@@ -228,8 +259,12 @@ that excludes him (the pivot); above it, pivot. Two columns:
    players to feed the optimizer. (The `out/prices_2026.csv` hook in
    `02_value.py` expects `name,position,predicted_price` if used, but the live
    path is `build_2026.py` → `players.json` — wire overrides there.)
-2. **Wire the par sheet into `src/par-sheet.ts` `DEFAULT_WEIGHTS`** — offered,
-   not done (one edit; user may adjust for the elite-QB ceiling preference).
+2. **~~Wire the par sheet into `DEFAULT_WEIGHTS`~~ → SUPERSEDED.** The static
+   transcription is replaced by a *live* re-solve: port `optCompletion` into
+   `src/engine/` (content-script poll loop) → live par sheet + roster-grounded
+   `nominationSuggest` / `valueAlert` ceiling. The TS solver foundation is done
+   & validated; the wiring is the next step. *(Issue 1: pivot /
+   regenerate-optimal-roster-on-the-fly when you miss a target.)*
 3. **Ceiling-tilted variant** — force one top-5 QB, re-optimize, quantify the
    starter-pts cost; produces a Plan B par sheet. Offered, not done.
 4. Generate the `prices_2026.csv`-style market-value feed the live **value-alerts**
@@ -238,13 +273,22 @@ that excludes him (the pivot); above it, pivot. Two columns:
    realization priors above as a haircut on projected pts in the objective; add
    a max-bid calc per nominated target ("bid on this guy now" / ceiling + gap vs
    live inflation-adjusted market). Keep the anchor-value-consistent-with-pool
-   rule (see bug note) or bids will be inflated.
+   rule (see bug note) or bids will be inflated. *(The solver foundation landed
+   this session — `analysis/ts-solver/solver.ts`; this item = layering
+   realization priors + a max-bid calc on top of it.)*
 6. **Fix the SF QB cost curve in `build_2026.py`** — reprice QB13–24 to SF
    starter demand (24 QBs start). This is the highest-leverage input fix;
    unblocks trustworthy max-bid/inflation numbers.
 7. **Fix mid-tier anchoring in `05_max_bid.py`** — try all eligible starter
    slots for the target, take the best, so value flags on WR2/RB2 types are
    reliable, not just elites.
+8. **Team-stack constraint (issue 2).** `players.json` has no NFL `team` field
+   but `common.py load_projections()` already reads it — thread `team` through
+   `build_2026.py`, then add a **starters-only max-2-per-team** constraint to
+   the optimizer (hard cap or soft penalty). Lower priority; quantify the
+   starter-pts cost. (Bench teammates are harmless insurance — constrain
+   starters only. Adjacent but distinct: a same-bye-week starter collision
+   check would need bye data too.)
 
 ---
 
@@ -388,11 +432,21 @@ button / `.ys-player` / Results thead, not brittle nth-of-type paths).
    max-bid/must-fill; the Par Sheet auto-fills from the live sold feed. Still
    open: only `chrome.notifications` for push delivery when the panel isn't
    focused.
-4. **"My turn" detector** — capture the draft room on your turn to nominate
+4. **Live roster re-solve (issue 1 — the pivot engine).** Port
+   `analysis/ts-solver/solver.ts` into `src/engine/` as
+   `optCompletion({exclude: sold, filled: locked slots + spent, budget})`, run
+   it in the content-script poll loop after `toDraftState`, and augment
+   `DraftState` with `{optimalRoster, topTargets, valueCeilings}`. This makes
+   the par sheet *live* (reactive pivot when you miss a target) and grounds
+   `nominationSuggest` / `valueAlert`'s ceiling in true opportunity cost
+   (proactive — "bid up to $B; at $B+1 the reallocation elsewhere beats it").
+   Foundation done & validated (~0.9 ms/tick, no server); this item is the
+   wiring. Re-tool the `!` assertions for oxlint when porting in.
+5. **"My turn" detector** — capture the draft room on your turn to nominate
    (no `Offer` button in that state) to learn the turn signal, then flip a
    `phase: "MY_NOMINATION"`/flag in the mapper so `nominationSuggest` fires
    for real. **This is the one capture the user needs to do.**
-5. **Harden tests** — add `jsdom` dev-dep + a trimmed fixture (from a
+6. **Harden tests** — add `jsdom` dev-dep + a trimmed fixture (from a
    capture) to unit-test the DOM glue end-to-end through `scrapeDraftRoom` →
    `toDraftState` (and the poll tick).
 
