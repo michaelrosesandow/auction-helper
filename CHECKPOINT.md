@@ -1,9 +1,8 @@
 # Checkpoint — Yahoo Auction Helper
 
-**Last updated:** 2026-07-27 (session: TS knapsack solver port + latency validation; live-draft engine committed)
+**Last updated:** 2026-08-04 (session: live QB-strategy monitor — `solver.ts` + `optimize.ts` engine + Live-tab panel)
 
-> **Git state:** live-draft engine = `c2f2838`; TS solver port + benchmark = `01ff413`.
-> Working tree clean; `tsc` / `oxlint` / `knip` / 116 tests / `build` all green.
+> **Git state:** see `git log`. `tsc` / `oxlint` / `knip` / **130 tests** / `build` all green.
 **Purpose:** Let a fresh session resume this work without rediscovering the
 Yahoo draft-room DOM, the probe architecture, or the par-sheet modeling
 pipeline. Read this, then `PLAN.md` (scope) and `AGENTS.md` (conventions).
@@ -28,11 +27,16 @@ green (`tsc`, `oxlint`, `knip`, 116 tests, `build`).
 `valueAlert`, `tierCliff`, `nominationSuggest`), the **poll loop** (resident
 content-script `setInterval` → `toDraftState` → diff → `DRAFT_STATE_KEY`),
 the **Live tab** rendering all of it (value flag, tier cliffs, endgame-leverage
-banner, per-team budget/max-bid/must-fill, **nomination prep**), and **Par
-Sheet auto-fill** from the live sold feed are built and unit-tested. What
-remains: the live **"my turn" DOM detector** (needs one mock-draft capture to
-wire `nominationSuggest` to actually fire on your turn) and
-`chrome.notifications` push delivery.
+banner, per-team budget/max-bid/must-fill, **nomination prep**), **Par
+Sheet auto-fill** from the live sold feed, AND the **live QB-strategy
+monitor** (`src/engine/optimize.ts` — re-solves the optimal QB starter pair
+against current prices every tick, renders the landscape + price headroom in
+the Live tab) are built and unit-tested. What remains: the live **"my turn"
+DOM detector** (needs one mock-draft capture to wire `nominationSuggest` to
+actually fire on your turn), **`chrome.notifications`** push delivery, and
+the QB-monitor follow-ups (per-player price overrides, locking won players,
+moving the solve into the content-script poll loop) — see **"Live QB-strategy
+monitor"** near the bottom.
 
 **Separately,** the 2026 par sheet is derived in `analysis/` (rank-based SF
 cost model + hill-climb optimizer), and the exact 0/1-knapsack solver
@@ -91,6 +95,65 @@ dir is **intentionally excluded** from the project's tsc/oxlint/knip toolchain
 standalone artifact until wired into `src/engine/`. When ported in, re-tool the
 `!` non-null assertions (the solver uses them; project oxlint forbids
 `no-non-null-assertion`).
+
+> **UPDATE 2026-08-04: the port landed.** `analysis/ts-solver/solver.ts` →
+> `src/engine/solver.ts` (re-tooled: no `!`, no `any`, oxlint-clean) + a new
+> `src/engine/optimize.ts` (`optimizeRoster`) that layers the **QB starter-pair
+> enumeration** on top. Note `bench.ts`'s hardcoded Python checks (1465.7 /
+> 1396.6 / 1361.6) are now **stale** — `players.json` was regenerated with the
+> recency weights after `bench.ts` was written, so those `FAIL`s are the
+> reference being old, not the port being wrong (current Python = 1425.4 @ 140,
+> which the TS port matches; see `optcheck.ts`).
+
+### Live QB-strategy monitor (`src/engine/optimize.ts` + Live tab) — 2026-08-04
+
+**What it is.** A live re-solve that, every poll tick, finds the optimal **QB
+starter pair** (QB1 + Superflex) given current prices and renders the *landscape*
+of near-equal pairs (not one brittle "answer") with a **price headroom** each.
+Motivation: the QB-pair decision is price-sensitive (a couple $ shifts it), the
+QB tier is flat (Lawrence QB11 → Kyler QB17 ≈ 10 pts), and median projections are
+uncertain — so the tool must show a plateau + break-evens, react as QBs sell /
+get bid up, and never make you wait on one "optimal" name.
+
+- **`optimizeRoster({players, budget, backupQbAllowance=7, topN=6})`** enumerates
+  *every* unsold QB starter pair; for each, `optSkill` solves the 2RB+2WR+1TE+FLEX
+  roster at the leftover budget (`budget − reserves − backupQbAllowance −
+  qbCost`). Ranks by `qbPts + skill.pts`. Each `QBOption` carries `gapToBest`
+  (pts) and a signed **`priceSwing`** ($): leader = +headroom before the
+  runner-up overtakes; challenger = −$ to tie. Caller maps the loaded rankings →
+  `OptPlayer` (`cost = marketValue × inflation`, `pts = projMedian`) and excludes
+  sold ids.
+- **`src/sidepanel.ts` `liveQbStratHtml`** renders the top pairs table in the Live
+  tab (QB pair / $ / Pts / Δ / vs-best) with the leader highlighted. Pure engine;
+  ~1 ms/tick, runs in the sidepanel render.
+- **Corrected finding:** the manual `04_qb_strategies.py` only tested *hand-picked*
+  pairs and **missed the true optimum**. Full enumeration shows that with a cheap
+  backup ($7), **Kyler + Purdy (2104)** beats Dak + Purdy (2094, ~7th) — Kyler
+  saves $5 over Dak and on the steep part of the skill frontier that buys ~21 pts,
+  outweighing Dak's 11-pt median edge. The top is a ~2-pt plateau (Kyler+Purdy /
+  Kyler+Stafford / Purdy+Stafford). With a $13 (Baker) backup, Dak+Kyler and
+  Kyler+Love tie at ~2085 (matches the earlier manual result). **Lesson: live
+  enumeration > a fixed plan.**
+
+**Outstanding work (the v2):**
+1. **Move the solve into the content-script poll loop** + attach
+   `{optimalRoster, topPairs}` to `DraftState`/`PollPayload` so it persists with
+   the panel closed and can drive `chrome.notifications` ("your lead pair just
+   flipped — Dak > $X"). Currently sidepanel-render-only.
+2. **Lock already-won players** into their slots (`filled` param) instead of
+   re-planning the full roster each tick. Today it excludes sold + plans the
+   *remaining* budget — correct for "what next" but slightly over-free mid-draft
+   (won't "un-pick" a player you already bought; it just won't see him as
+   available).
+3. **Per-player price overrides.** Prices = `marketValue × inflation` (aggregate)
+   only — the "Dak fan in your league" individual deviation isn't captured.
+   Needs an editable price column (the `marketValue` field exists; no in-panel
+   editor yet). This is the big one for the user's actual concern.
+4. **Use the live bid** on the current nomination as that player's price (not
+   just marketValue×inflation) so the headroom reacts to the bid forming right
+   now.
+5. Tie the headroom into `valueAlert` / `nominationSuggest` ceilings (true
+   opportunity cost: "bid on this QB up to $B; at $B+1 the pivot pair wins").
 
 ### League config (Avant)
 
@@ -362,6 +425,8 @@ Three Chrome contexts; pure engine layer pending.
 | `src/scraper.ts`          | **Live-state scraper.** Pure parsers (tested) + DOM scrapers → `scrapeDraftRoom(root)`. Exports `ScrapedDraftRoom`/`ScrapedNomination` for the engine.                                                                                                                                                                                                          |
 | `src/engine/match.ts`     | **Name resolver** — `createNameResolver(players)` maps Yahoo's abbreviated names ("J. Hurts", DST nicknames) → `Player`, narrowing by position. Pure, tested.                                                                                                                                                                                                   |
 | `src/engine/map-state.ts` | **Scrape → DraftState mapper** — `toDraftState(room, {players})` reconciles teams/rosters, winner→teamId, nomination, `inferPhase`, `computeInflation`. Pure, tested.                                                                                                                                                                                           |
+| `src/engine/optimize.ts`   | **Live QB-strategy optimizer** — `optimizeRoster({players, budget, backupQbAllowance})`: enumerates every unsold QB starter pair, solves the skill roster (knapsack) for each at the leftover budget, ranks by total pts, and computes a signed `priceSwing` per pair (leader = +$headroom before the runner-up overtakes; challenger = −$ to tie). Prices = `marketValue × inflation` (unsold), sold excluded by the caller. Pure, tested. Rendered in the Live tab. *(Runs in the sidepanel render for now; poll-loop wiring + locking won players are open.)* |
+| `src/engine/solver.ts`     | **Exact skill-starter knapsack** (ported from `analysis/ts-solver/`, re-tooled for oxlint) — `buildFronts(pool, cap, exclude)` + `optSkill(fronts, budget)` pick the optimal 2RB+2WR+1TE+1FLEX ≤ budget. O(1) back-pointer reconstruction; <1 ms over a ~425-player pool. Pure, tested (validated against a brute-force reference). |
 | `src/engine/alerts.ts`    | **Engine alerts** — `maxBidOf`, `teamNeeds`/`opponentNeeds` (max-bid + forced must-fill), `endgameLeverage` ("money off the board"), `valueAlert` (<X% of inflation-adjusted value), `tierCliff` (last of a tier), `nominationSuggest` (poison-pill / cold-market snipe / scare-nominate). Pure, tested.                                                        |
 | `src/engine/poll.ts`      | **Poll-loop pure helpers** — `POLL_INTERVAL_MS`, `STALE_AFTER_MS`, `PollPayload`, `stateSignature` (material-change diff), `isStale`. The chrome/DOM glue is in `src/content.ts`. Pure, tested.                                                                                                                                                                 |
 | `src/par-sheet.ts`        | Drew Davenport par-sheet math (done, tested) + **`reconcileParSheet`** (live auto-fill: assign unplaced wins to their best empty eligible slot; add-only/idempotent so manual edits survive).                                                                                                                                                                   |
@@ -464,6 +529,15 @@ button / `.ys-player` / Results thead, not brittle nth-of-type paths).
   price paid — so the Par Sheet's balance/variance stays live with zero manual
   entry. Add-only & idempotent (manual placements and par edits survive).
   Pure + unit-tested (8 tests).
+- **Live QB-strategy monitor** (`src/engine/solver.ts` + `src/engine/optimize.ts` +
+  Live-tab panel): the exact skill knapsack is ported into `src/engine/` (oxlint-
+  clean) and wrapped by `optimizeRoster()`, which enumerates every unsold QB
+  starter pair, solves the skill roster per pair, ranks by total pts, and
+  computes a signed `priceSwing` headroom. Rendered as a top-pairs table in the
+  Live tab (leader highlighted). Reacts to sold QBs + inflation each tick.
+  Corrected the manual analysis (true cheap-backup optimum is Kyler+Purdy, not
+  Dak+Purdy — the hand-picked pair list missed it). Pure + unit-tested (14 new
+  tests). v2 wiring outstanding (see the section above).
 - **Nomination strategy** (`src/engine/alerts.ts` `nominationSuggest` + a Live-
   tab **Nomination prep** preview): three pure strategies over
   `(DraftState, rankings)` — poison-pill (drain a rival forced to fill a
@@ -489,16 +563,21 @@ button / `.ys-player` / Results thead, not brittle nth-of-type paths).
    max-bid/must-fill; the Par Sheet auto-fills from the live sold feed. Still
    open: only `chrome.notifications` for push delivery when the panel isn't
    focused.
-4. **Live roster re-solve (issue 1 — the pivot engine).** Port
-   `analysis/ts-solver/solver.ts` into `src/engine/` as
-   `optCompletion({exclude: sold, filled: locked slots + spent, budget})`, run
-   it in the content-script poll loop after `toDraftState`, and augment
-   `DraftState` with `{optimalRoster, topTargets, valueCeilings}`. This makes
-   the par sheet *live* (reactive pivot when you miss a target) and grounds
-   `nominationSuggest` / `valueAlert`'s ceiling in true opportunity cost
-   (proactive — "bid up to $B; at $B+1 the reallocation elsewhere beats it").
-   Foundation done & validated (~0.9 ms/tick, no server); this item is the
-   wiring. Re-tool the `!` assertions for oxlint when porting in.
+4. **Live roster re-solve (issue 1 — the pivot engine).** **Solver + QB
+   optimizer PORTED & TESTED** this session (`src/engine/solver.ts` = exact
+   skill knapsack, re-tooled for oxlint; `src/engine/optimize.ts` =
+   `optimizeRoster()` enumerates every QB starter pair, solves skill per pair,
+   ranks, computes a signed `priceSwing` headroom). **Live-tab panel wired**
+   (renders the top ~6 pairs + $/pts/Δ/headroom). Runs in the sidepanel render
+   for now. **Still open** (see the "Live QB-strategy monitor" section): (a)
+   move the solve into the **content-script poll loop** + attach to
+   `DraftState`/`PollPayload` so it persists with the panel closed and feeds
+   `chrome.notifications`; (b) **lock already-won players** into their slots
+   (`filled` param) instead of planning the full roster each tick; (c)
+   **per-player price overrides** (the "Dak fan" individual deviation —
+   inflation is aggregate only); (d) use the **live bid** on the current
+   nomination as that player's price. The `optCompletion` name in the original
+   plan == `optimizeRoster`; the `filled`/lock feature is the v2.
 5. **"My turn" detector** — capture the draft room on your turn to nominate
    (no `Offer` button in that state) to learn the turn signal, then flip a
    `phase: "MY_NOMINATION"`/flag in the mapper so `nominationSuggest` fires

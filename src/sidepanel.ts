@@ -10,6 +10,7 @@ import {
   valueAlert,
 } from "./engine/alerts.js";
 import type { NominationCandidate, NominationStrategy } from "./engine/alerts.js";
+import { optimizeRoster, type OptPlayer, type QBOption } from "./engine/optimize.js";
 import { isStale, POLL_INTERVAL_MS, type PollPayload } from "./engine/poll.js";
 import {
   DOM_PROBE_KEY,
@@ -647,12 +648,76 @@ function liveTeamsHtml(s: DraftState): string {
   return header + rows;
 }
 
+// ── QB strategy (live re-solve) ─────────────────────────────────────────────
+// Maps the loaded rankings (marketValue × inflation → expected price,
+// projMedian → pts) into the optimizer's pool, excludes sold players, and
+// re-solves the optimal QB starter pair + skill roster against your remaining
+// budget. Renders the top near-equal pairs with a price headroom so you can
+// see the landscape (not one brittle "answer") react as QBs sell/get bid up.
+function optPoolFromRankings(s: DraftState, players: readonly Player[]): OptPlayer[] {
+  const inflation = Number.isFinite(s.inflation) ? s.inflation : 1;
+  const sold = new Set(s.sold.map((row) => row.playerId));
+  const out: OptPlayer[] = [];
+  for (const p of players) {
+    if (p.pos !== "QB" && p.pos !== "RB" && p.pos !== "WR" && p.pos !== "TE") {
+      continue;
+    }
+    if (sold.has(p.id)) {
+      continue;
+    }
+    const cost = Math.max(1, Math.round(p.marketValue * inflation));
+    out.push({ id: p.id, name: p.name, pos: p.pos, cost, pts: p.projMedian });
+  }
+  return out;
+}
+
+function swingHtml(opt: QBOption): string {
+  if (opt.priceSwing > 0) {
+    return `<span class="swing-pos">+\$${opt.priceSwing} room</span>`;
+  }
+  if (opt.priceSwing < 0) {
+    return `<span class="swing-neg">\$${-opt.priceSwing} cheaper</span>`;
+  }
+  return "";
+}
+
+function qbStratRowHtml(rank: number, opt: QBOption, isLeader: boolean): string {
+  const cls = isLeader ? ' class="lead"' : "";
+  const pair = opt.qbs.map((q) => escapeHtml(q.name)).join(" + ");
+  const gap = opt.gapToBest === 0 ? "—" : `${opt.gapToBest.toFixed(0)}`;
+  return `<tr${cls}><td>${rank}</td><td>${pair}</td><td class="num">\$${opt.qbCost}</td><td class="num">${opt.totalPts.toFixed(0)}</td><td class="num">${gap}</td><td>${swingHtml(opt)}</td></tr>`;
+}
+
+function liveQbStratHtml(s: DraftState, players: readonly Player[]): string {
+  if (players.length === 0) {
+    return '<div class="muted" style="font-size:11px;margin:4px 0">Load rankings to see the live QB-strategy re-solve.</div>';
+  }
+  const me = s.teams.find((t) => t.isMe);
+  if (!me) {
+    return "";
+  }
+  const res = optimizeRoster({ players: optPoolFromRankings(s, players), budget: me.budgetRemaining });
+  const head = `<div class="qs-head muted">QB strategy — your $${me.budgetRemaining}, backup QB ~$${res.backupQbAllowance}</div>`;
+  if (!res.best || res.topPairs.length === 0) {
+    return `<div class="qbstrat">${head}<div class="muted">${escapeHtml(res.note ?? "No solution.")}</div></div>`;
+  }
+  const bestTotal = res.best.totalPts;
+  const rows = res.topPairs
+    .map((opt, i) => qbStratRowHtml(i + 1, opt, opt.totalPts === bestTotal))
+    .join("");
+  const tbl =
+    `<table><thead><tr><th>#</th><th>QB pair</th><th class="num">$</th>` +
+    `<th class="num">Pts</th><th class="num">Δ</th><th>vs best</th></tr></thead><tbody>${rows}</tbody></table>`;
+  return `<div class="qbstrat">${head}${tbl}</div>`;
+}
+
 function renderLive(): void {
   const payload = lastLive;
   const status = byId("live-status");
   status.textContent = liveStatusHtml(payload, Date.now());
   status.className = liveStatusClass(payload);
   const leverage = byId("live-leverage");
+  const qbstrat = byId("live-qbstrat");
   const meta = byId("live-meta");
   const nomprep = byId("live-nomprep");
   const nom = byId("live-nomination");
@@ -660,6 +725,7 @@ function renderLive(): void {
   const teams = byId("live-teams");
   if (!payload) {
     leverage.innerHTML = "";
+    qbstrat.innerHTML = "";
     meta.innerHTML = "";
     nomprep.innerHTML = "";
     nom.innerHTML = "";
@@ -670,6 +736,7 @@ function renderLive(): void {
   const s = payload.state;
   const players = state.rankings?.players ?? [];
   leverage.innerHTML = liveLeverageHtml(s, players);
+  qbstrat.innerHTML = liveQbStratHtml(s, players);
   meta.innerHTML = liveMetaHtml(s);
   nomprep.innerHTML = liveNomPrepHtml(s, players);
   nom.innerHTML = liveNominationHtml(s);

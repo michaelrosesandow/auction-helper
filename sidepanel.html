@@ -285,6 +285,42 @@
         color: #c0392b;
         font-weight: 600;
       }
+      .qbstrat {
+        margin: 6px 0;
+        font-size: 11px;
+      }
+      .qbstrat .qs-head {
+        font-size: 11px;
+        margin-bottom: 2px;
+      }
+      .qbstrat table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .qbstrat th,
+      .qbstrat td {
+        text-align: left;
+        padding: 2px 4px;
+        white-space: nowrap;
+      }
+      .qbstrat th {
+        font-weight: 500;
+        color: #aaa;
+        border-bottom: 1px solid #8884;
+      }
+      .qbstrat td.num {
+        text-align: right;
+      }
+      .qbstrat tr.lead td {
+        background: #2a6df422;
+        font-weight: 600;
+      }
+      .qbstrat .swing-pos {
+        color: #1a8a3b;
+      }
+      .qbstrat .swing-neg {
+        color: #c77700;
+      }
       .need-chip {
         display: inline-block;
         font-size: 10px;
@@ -418,6 +454,7 @@
       <section id="tab-live" hidden>
         <div id="live-status" class="muted">Waiting for the draft tab…</div>
         <div id="live-leverage"></div>
+        <div id="live-qbstrat"></div>
         <div id="live-meta" class="grid"></div>
         <div id="live-nomprep"></div>
         <div id="live-nomination"></div>

@@ -171,13 +171,15 @@ import importlib.util as _ilu
 _qspec = _ilu.spec_from_file_location("_qbstrat", os.path.join(HERE, "04_qb_strategies.py"))
 _qbmod = _ilu.module_from_spec(_qspec); _qspec.loader.exec_module(_qbmod)
 _BENCH_COSTS = [13, 8, 7, 4, 3]
-def _best_qb_at(cost):
-    c = [p for p in players if p["pos"] == "QB" and p["cost"] == cost]
-    if not c:
-        return None
-    b = max(c, key=lambda p: p["pts"])
-    return (b["name"], round(b["pts"], 1))
-_BENCH_FILL = {bc: _best_qb_at(bc) for bc in _BENCH_COSTS}   # price -> (name, ins. pts)
+# Pin the canonical backup each price represents (matches the narrative: Baker is
+# the $13 baseline; Stroud/Shough the $7-8 sweet spot). pts looked up from data
+# so they stay correct if projections change.
+_BENCH_NAMES = {13: "Baker Mayfield", 8: "Tyler Shough", 7: "C.J. Stroud",
+                4: "Daniel Jones", 3: "Aaron Rodgers"}
+def _qpts(name):
+    p = next((p for p in players if p["name"] == name), None)
+    return round(p["pts"], 1) if p else None
+_BENCH_FILL = {bc: (n, _qpts(n)) for bc, n in _BENCH_NAMES.items()}   # price -> (name, ins. pts)
 _T, _KDST, _BNS = 200, 2, 5
 def _sname(n):
     t = [w for w in n.replace(".", " ").split() if w.upper() not in ("II", "III", "IV", "JR", "SR")]
@@ -191,6 +193,8 @@ for _plan in _qbmod.PLANS:
     _start = " + ".join(_sname(n) for s, n in _plan["qbs"].items() if s in _qbmod.QB_SLOTS)
     _sweep.append({"tag": _plan["tag"], "start": _start, "sc": _sc, "cells": _cells})
 _sweep.sort(key=lambda r: r["sc"])                       # cheapest starters first
+# dedup: plans that differ only in bench QB collapse to identical starter pairs
+_seen = set(); _sweep = [r for r in _sweep if (r["start"], r["sc"]) not in _seen and not _seen.add((r["start"], r["sc"]))]
 _best_of = {bc: max(_sweep, key=lambda r: r["cells"][bc])["tag"] for bc in _BENCH_COSTS}
 _ask_tags = set(qb.get("ask_tags", []))
 _sens_head = "".join(f"<th>${bc} backup</th>" for bc in _BENCH_COSTS)
