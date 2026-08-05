@@ -4,6 +4,7 @@ import {
   DEFAULT_TARGET_FADE_DELTA,
   DEFAULT_VALUE_THRESHOLD,
   endgameLeverage,
+  indexTierFlags,
   maxBidOf,
   opponentNeeds,
   ROSTER_FLOORS,
@@ -12,7 +13,7 @@ import {
   tierCliff,
   valueAlert,
 } from "../engine/alerts.js";
-import type { DraftState, Nomination, Player, Position, TeamState } from "../types.js";
+import type { DraftState, Nomination, Player, Position, TeamState, Tier } from "../types.js";
 
 function player(name: string, pos: Position, marketValue: number): Player {
   return {
@@ -432,5 +433,76 @@ describe("tierCliff", () => {
 
   it("returns nothing for an empty pool", () => {
     expect(tierCliff(meState(), [])).toEqual([]);
+  });
+});
+
+describe("indexTierFlags (T5)", () => {
+  it("indexes only tiers carrying a structural flag", () => {
+    const idx = indexTierFlags([
+      { pos: "RB", tier: 1, playerIds: [] },
+      { pos: "RB", tier: 3, playerIds: [], bigBreakAfter: true },
+      { pos: "RB", tier: 4, playerIds: [], deadZone: true },
+    ]);
+    expect(idx.has("RB:1")).toBe(false);
+    expect(idx.get("RB:3")).toEqual({ bigBreakAfter: true, deadZone: false });
+    expect(idx.get("RB:4")).toEqual({ bigBreakAfter: false, deadZone: true });
+  });
+});
+
+describe("tierCliff — structural flags (T5)", () => {
+  // RB: tier 3 carries a Big Break; tier 4 is the Dead Zone that follows it.
+  const rbs = [
+    tiered("RB3a", "RB", 3, 5),
+    tiered("RB3b", "RB", 3, 6),
+    tiered("RB4a", "RB", 4, 7),
+    tiered("RB4b", "RB", 4, 8),
+  ];
+  const tiers: Tier[] = [
+    { pos: "RB", tier: 3, playerIds: ["rb3a-rb", "rb3b-rb"], bigBreakAfter: true },
+    { pos: "RB", tier: 4, playerIds: ["rb4a-rb", "rb4b-rb"], deadZone: true },
+  ];
+  const me = draftState([makeTeam("me", { isMe: true })]);
+
+  it("flags beforeDeadZone when the top remaining tier carries a Big Break", () => {
+    const rb = tierCliff(me, rbs, tiers).find((c) => c.pos === "RB");
+    expect(rb?.tier).toBe(3);
+    expect(rb?.beforeDeadZone).toBe(true);
+    expect(rb?.inDeadZone).toBeUndefined();
+  });
+
+  it("flags inDeadZone once the board drops into the Dead Zone tier", () => {
+    const state = draftState(
+      [makeTeam("me", { isMe: true })],
+      [
+        { playerId: "rb3a-rb", price: 20, teamId: "me" },
+        { playerId: "rb3b-rb", price: 18, teamId: "me" },
+      ],
+    );
+    const rb = tierCliff(state, rbs, tiers).find((c) => c.pos === "RB");
+    expect(rb?.tier).toBe(4);
+    expect(rb?.inDeadZone).toBe(true);
+    expect(rb?.beforeDeadZone).toBeUndefined();
+  });
+
+  it("leaves structural fields unset when no tier data is supplied (back-compat)", () => {
+    const rb = tierCliff(me, rbs).find((c) => c.pos === "RB");
+    expect(rb?.beforeDeadZone).toBeUndefined();
+    expect(rb?.inDeadZone).toBeUndefined();
+    // Scarcity flag still works unchanged.
+    expect(rb?.isCliff).toBe(false);
+  });
+
+  it("keeps the scarcity cliff flag independent of the structural flags", () => {
+    // Sell one of the two tier-3 RBs -> tier 3 is down to its last player
+    // (isCliff) AND still carries the Big Break (beforeDeadZone).
+    const state = draftState(
+      [makeTeam("me", { isMe: true })],
+      [{ playerId: "rb3a-rb", price: 20, teamId: "me" }],
+    );
+    const rb = tierCliff(state, rbs, tiers).find((c) => c.pos === "RB");
+    expect(rb?.tier).toBe(3);
+    expect(rb?.remaining).toBe(1);
+    expect(rb?.isCliff).toBe(true);
+    expect(rb?.beforeDeadZone).toBe(true);
   });
 });

@@ -9,12 +9,13 @@
 //   - valueAlert(): flag the live nomination going for < X% of its
 //     inflation-adjusted market value (the "buy" signal).
 //   - tierCliff(): per position, the top remaining tier + a scarcity-premium
-//     flag when that tier is down to its last player.
+//     flag when that tier is down to its last player, plus ex ante Big Break /
+//     Dead Zone structural flags when tier data is supplied (T5).
 // nominationSuggest() is implemented (pure) and assumes it's the user's turn;
 // the live "my turn" DOM detector is still pending a capture (CHECKPOINT.md
 // gaps). Everything here is pure + unit-tested.
 
-import type { DraftState, Player, Position, TeamState } from "../types.js";
+import type { DraftState, Player, Position, TeamState, Tier } from "../types.js";
 
 // Minimum starters a legal Superflex lineup MUST field at each position.
 // FLEX (RB/WR/TE) and Superflex (QB/RB/WR/TE) are flexible, so they add no
@@ -218,6 +219,36 @@ export function valueAlert(
 
 // ── Tier / cliff tracking ─────────────────────────────────────────────────
 
+// ── Structural tier flags (Big Break / Dead Zone) ──────────────────────────
+// Ex ante facts about the board (authored in the tier data), unlike the
+// in-draft scarcity flag below. bigBreakAfter = value falls off hard AFTER
+// this tier (secure a starter here or punt the position); deadZone = THIS
+// tier is the worst place to pay for floor (it follows a Big Break). Both
+// live on `Tier` (TODO T1), so the engine reads them through a lookup keyed
+// by `${pos}:${tier}`. Absent when no tier data is supplied -> every
+// structural signal no-ops and the scarcity flag is unchanged.
+
+export interface TierFlags {
+  bigBreakAfter: boolean;
+  deadZone: boolean;
+}
+
+// Index structural flags from the rankings `Tier[]`. Tiers with neither flag
+// set are omitted (lookup miss = "no structural claim"), matching the
+// importer's "only set when true" convention.
+export function indexTierFlags(tiers: readonly Tier[]): Map<string, TierFlags> {
+  const idx = new Map<string, TierFlags>();
+  for (const t of tiers) {
+    if (t.bigBreakAfter || t.deadZone) {
+      idx.set(`${t.pos}:${t.tier}`, {
+        bigBreakAfter: Boolean(t.bigBreakAfter),
+        deadZone: Boolean(t.deadZone),
+      });
+    }
+  }
+  return idx;
+}
+
 export interface TierCliff {
   pos: Position;
   // The best (lowest-numbered) tier at this position that still has unsold
@@ -225,15 +256,31 @@ export interface TierCliff {
   tier: number;
   remaining: number;
   players: Player[];
-  // True when only one player is left — the scarcity-premium cliff. Pay up
-  // or nominate to secure the last of the tier before it's gone.
+  // In-draft scarcity: only one player is left — pay up or nominate to secure
+  // the last of the tier before it's gone. Independent of the structural
+  // flags below.
   isCliff: boolean;
+  // Structural (ex ante): this tier carries a Big Break — the cliff drops
+  // AFTER it, so the next tier is the Dead Zone. Secure a starter now or punt
+  // the position. Only set when tier data is supplied.
+  beforeDeadZone?: boolean;
+  // Structural (ex ante): THIS tier is a Dead Zone — the worst place to pay
+  // for floor. Don't burn starter money here (punt or fill bench-only). Only
+  // set when tier data is supplied.
+  inDeadZone?: boolean;
 }
 
-// Per position, the top remaining tier with its survivors and a cliff flag
-// when that tier is down to its last player. Positions with no unsold ranked
-// players are omitted; output is in canonical position order.
-export function tierCliff(state: DraftState, players: Player[]): TierCliff[] {
+// Per position, the top remaining tier with its survivors, a scarcity cliff
+// flag (in-draft: down to its last player), and — when `tiers` is supplied —
+// structural Big Break / Dead Zone flags (ex ante). Positions with no unsold
+// ranked players are omitted; output is in canonical position order. Passing
+// no `tiers` leaves the structural fields unset (back-compat).
+export function tierCliff(
+  state: DraftState,
+  players: Player[],
+  tiers?: readonly Tier[],
+): TierCliff[] {
+  const flags = tiers ? indexTierFlags(tiers) : undefined;
   const unsold = unsoldPlayers(state, players);
   const byPos = new Map<Position, Player[]>();
   for (const p of unsold) {
@@ -254,13 +301,21 @@ export function tierCliff(state: DraftState, players: Player[]): TierCliff[] {
     const inTier = pool
       .filter((p) => p.tier === topTier)
       .sort((a, b) => a.positionRank - b.positionRank);
-    cliffs.push({
+    const cliff: TierCliff = {
       pos,
       tier: topTier,
       remaining: inTier.length,
       players: inTier,
       isCliff: inTier.length === 1,
-    });
+    };
+    const f = flags?.get(`${pos}:${topTier}`);
+    if (f?.bigBreakAfter) {
+      cliff.beforeDeadZone = true;
+    }
+    if (f?.deadZone) {
+      cliff.inDeadZone = true;
+    }
+    cliffs.push(cliff);
   }
   return cliffs;
 }
@@ -372,6 +427,7 @@ export function nominationSuggest(
   state: DraftState,
   players: Player[],
   opts: NominationSuggestOptions = {},
+  tiers?: readonly Tier[],
 ): NominationSuggestions {
   const empty: NominationSuggestions = { poisonPill: [], coldMarket: [], scareNominate: [] };
   const limit = opts.limit ?? 3;
@@ -412,6 +468,13 @@ export function nominationSuggest(
   };
   // A Fade is acquirable only at a deep live discount; everyone else always is.
   const acquirable = (p: Player): boolean => !p.fade || liveDiscount(p) >= minFadeDiscount;
+  // Structural Dead Zone (TODO T5): a player whose tier is the worst place to
+  // pay for floor. Excluded from scare-nominate — you don't want to stoke
+  // urgency around a tier you want rivals to AVOID (and won't pay for floor in
+  // yourself). No-op when no tier data is supplied.
+  const deadZoneIdx = tiers ? indexTierFlags(tiers) : undefined;
+  const isDeadZone = (pos: Position, tier: number): boolean =>
+    Boolean(deadZoneIdx?.get(`${pos}:${tier}`)?.deadZone);
   const cliffPlayers = tierCliff(state, players)
     .filter((c) => c.isCliff)
     .flatMap((c) => c.players);
@@ -470,7 +533,13 @@ export function nominationSuggest(
   // Scare-nominate — SCARCITY. The last of a thin tier at a position rivals
   // still need: nominating it forces them to bid now or lose the tier.
   const scareNominate = cliffPlayers
-    .filter((p) => p.marketValue >= minDrainValue && !p.target && demandAt(p.pos) > 0)
+    .filter(
+      (p) =>
+        p.marketValue >= minDrainValue &&
+        !p.target &&
+        !isDeadZone(p.pos, p.tier) &&
+        demandAt(p.pos) > 0,
+    )
     .map((p) => {
       const n = demandAt(p.pos);
       const reason = `Last of the top ${p.pos} tier; ${n} rival${n === 1 ? "" : "s"} still need ${p.pos}.`;

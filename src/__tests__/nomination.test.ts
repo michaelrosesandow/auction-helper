@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { DEFAULT_MIN_FADE_DISCOUNT, nominationSuggest } from "../engine/alerts.js";
-import type { DraftState, Nomination, Player, Position, TeamState } from "../types.js";
+import type { DraftState, Nomination, Player, Position, TeamState, Tier } from "../types.js";
 
 const ALL_STARTERS: Position[] = ["QB", "RB", "RB", "WR", "WR", "TE", "K", "DEF"];
 
@@ -276,5 +276,34 @@ describe("nominationSuggest — top pick + note", () => {
     const s = nominationSuggest(state([meSolid(), solidTeam("r1")]), [player("Some QB", "QB", 40)]);
     expect(s.top).toBeUndefined();
     expect(s.note).toBeDefined();
+  });
+});
+
+describe("nominationSuggest — scare-nominate Dead Zone guard (T5)", () => {
+  // The last of a thin tier rivals need is normally an ideal scare-nominate.
+  // When that tier is a Dead Zone, stoking urgency around it feeds rivals a
+  // cheap tier you want them to AVOID (and won't pay for floor in yourself).
+  const one = player("QB One", "QB", 55, { tier: 2, positionRank: 3 });
+  const two = player("QB Two", "QB", 50, { tier: 2, positionRank: 4 });
+  const qbs = [one, two];
+  // QB Two is sold -> tier 2 is down to its last player (the scarcity cliff).
+  const sold = [{ playerId: two.id, price: 5, teamId: "r1" }];
+
+  it("skips a cliff player whose tier is a Dead Zone", () => {
+    const tiers: Tier[] = [{ pos: "QB", tier: 2, playerIds: qbs.map((q) => q.id), deadZone: true }];
+    const s = nominationSuggest(state([meSolid(), rivalNeeding("r1", "QB")], sold), qbs, {}, tiers);
+    expect(s.scareNominate).toEqual([]);
+  });
+
+  it("still scare-nominates the same cliff player when the tier is NOT a Dead Zone", () => {
+    // No structural flag on tier 2 -> not a dead zone.
+    const tiers: Tier[] = [{ pos: "QB", tier: 2, playerIds: qbs.map((q) => q.id) }];
+    const s = nominationSuggest(state([meSolid(), rivalNeeding("r1", "QB")], sold), qbs, {}, tiers);
+    expect(s.scareNominate.map((c) => c.name)).toContain("QB One");
+  });
+
+  it("leaves scare-nominate unchanged when no tier data is supplied (back-compat)", () => {
+    const s = nominationSuggest(state([meSolid(), rivalNeeding("r1", "QB")], sold), qbs);
+    expect(s.scareNominate.map((c) => c.name)).toContain("QB One");
   });
 });

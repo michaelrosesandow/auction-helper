@@ -42,7 +42,7 @@ import {
   setCurrentLeague,
   type RankingsData,
 } from "./storage.js";
-import type { DraftState, ParSheet, Player, Position, SlotId } from "./types.js";
+import type { DraftState, ParSheet, Player, Position, SlotId, Tier } from "./types.js";
 
 // A tiny sample so the importer can be exercised without a real CSV on hand.
 const SAMPLE_CSV = `Player Name,Position,Team,Tier,Market Value,Floor,Median,Ceiling,Target,Fade
@@ -534,11 +534,11 @@ function nomLabel(strategy: NominationStrategy): string {
 // nominations (not while a player is on the block or the draft is done). It's
 // labeled conditional because the engine can't yet see whose turn it is — the
 // live "my turn" detector is pending a DOM capture (CHECKPOINT.md gaps).
-function liveNomPrepHtml(s: DraftState, players: Player[]): string {
+function liveNomPrepHtml(s: DraftState, players: Player[], tiers: Tier[]): string {
   if (players.length === 0 || s.phase === "BIDDING" || s.phase === "DONE") {
     return "";
   }
-  const sug = nominationSuggest(s, players);
+  const sug = nominationSuggest(s, players, {}, tiers);
   if (sug.note) {
     return `<div class="muted" style="margin: 6px 0">Nomination: ${escapeHtml(sug.note)}</div>`;
   }
@@ -600,11 +600,11 @@ function liveLeverageHtml(s: DraftState, players: Player[]): string {
   return "";
 }
 
-function liveTierHtml(s: DraftState, players: Player[]): string {
+function liveTierHtml(s: DraftState, players: Player[], tiers: Tier[]): string {
   if (players.length === 0) {
     return "";
   }
-  const cliffs = tierCliff(s, players);
+  const cliffs = tierCliff(s, players, tiers);
   if (cliffs.length === 0) {
     return "";
   }
@@ -612,7 +612,15 @@ function liveTierHtml(s: DraftState, players: Player[]): string {
     .map((c) => {
       const cls = c.isCliff ? "tier-row cliff" : "tier-row";
       const label = c.isCliff ? "last!" : `${c.remaining} left`;
-      return `<span class="${cls}"><b>${c.pos}${c.tier}</b> ${label}</span>`;
+      // Structural (ex ante) warning (T5): the next tier is a Dead Zone, or
+      // this tier IS one. Appended so the in-draft scarcity chip is unchanged.
+      let warn = "";
+      if (c.inDeadZone) {
+        warn = ` <span class="tier-row deadzone"><b>${c.pos}${c.tier}</b> dead zone — don't pay for floor</span>`;
+      } else if (c.beforeDeadZone) {
+        warn = ` <span class="tier-row deadzone"><b>${c.pos}</b> dead zone next — secure or punt</span>`;
+      }
+      return `<span class="${cls}"><b>${c.pos}${c.tier}</b> ${label}</span>${warn}`;
     })
     .join("");
   return `<div class="tiers">${rows}</div>`;
@@ -741,9 +749,10 @@ function renderLive(): void {
   leverage.innerHTML = liveLeverageHtml(s, players);
   qbstrat.innerHTML = liveQbStratHtml(s, players);
   meta.innerHTML = liveMetaHtml(s);
-  nomprep.innerHTML = liveNomPrepHtml(s, players);
+  const rankedTiers = state.rankings?.tiers ?? [];
+  nomprep.innerHTML = liveNomPrepHtml(s, players, rankedTiers);
   nom.innerHTML = liveNominationHtml(s);
-  tiers.innerHTML = liveTierHtml(s, players);
+  tiers.innerHTML = liveTierHtml(s, players, rankedTiers);
   teams.innerHTML = liveTeamsHtml(s);
 }
 
