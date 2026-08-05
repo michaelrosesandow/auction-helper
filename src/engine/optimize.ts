@@ -28,7 +28,11 @@ type OptPos = "QB" | SkillPos;
 
 /** A player in the optimizer's pool. QBs compete for the 2 starter slots;
  *  skill players (RB/WR/TE) feed the knapsack. cost = expected live price
- *  (the caller applies inflation), pts = median projection. */
+ *  (the caller applies inflation). pts = a ceiling-tilted BLENDED projection
+ *  resolved by the caller via {@link blendPts} — NOT the raw median. The
+ *  solver/optimizer stay agnostic to how pts was derived (median vs blend),
+ *  which is what lets us tilt the objective toward ceiling without corrupting
+ *  the displayed base rate (projMedian). */
 export interface OptPlayer {
   id: string;
   name: string;
@@ -248,4 +252,70 @@ export function optimizeRoster(input: OptimizeInput): OptimizeResult {
   }
 
   return { best: top[0] ?? null, topPairs: top, backupQbAllowance };
+}
+
+// ── Blended projection (starter ceiling-tilt) ───────────────────────────────
+// The optimizer maximizes Σ pts. Feeding it the raw median undersells upside
+// at a given median: a high-ceiling starter is worth more than a low-ceiling
+// one. The CALLER blends floor / median / ceiling, and the blend — not the
+// median — is what the optimizer sees. The displayed base rate stays
+// projMedian (anchoring rule: tiers shape the band; they never move it).
+//
+// STARTER-ONLY. The solver knapsack fills the 6 skill STARTER slots
+// (2RB+2WR+1TE+FLEX); the bench is $1 leftovers and the backup QB a flat
+// allowance — neither is optimized, so there is no bench role to value. The
+// tilt is therefore a single starter ceiling-tilt.
+//
+// Weights sum to 1.0, so a symmetric player (floor≈median≈ceiling) blends
+// back to its median — no base-rate corruption. A missing ceiling (e.g.
+// median-only QB data) degrades to the median rather than inventing a band.
+//
+// The tilt (0.3) is a defensible starting point, NOT measured. It is too
+// gentle to surface a low-median / high-ceiling "upside bet" (Hampton) over a
+// high-median Dead-Zone floor-back at a starter slot — that signal lives in
+// the `target` flag → nominationSuggest, not the blend. Validating / tuning
+// the tilt is TODO.md (V2–V3); reintroducing bench valuation is V4, gated on
+// the empirical backtest. See todo_archive/TODO-tiers.md for the retired
+// bench roles.
+
+/** Structural subset of {@link Player} the blend reads. Player satisfies it,
+ *  so callers pass players directly; tests can build minimal inputs. */
+export interface BlendInput {
+  projMedian: number;
+  projFloor?: number;
+  projCeiling?: number;
+  fade?: boolean;
+}
+
+export interface BlendPtsOptions {
+  /** Acquire discount applied when the player is a Fade. Default 0.9 (−10%). */
+  fadeDiscount?: number;
+}
+
+// Calibration: defensible starting point (weights sum to 1.0). Retune here and
+// every blend updates. See TODO.md (V2–V3) + analysis/rubric.py for the band
+// shapes that feed the ceiling.
+const BLEND_MEDIAN = 0.7;
+const BLEND_CEILING = 0.3;
+
+// Acquire penalty for a Fade. The optimizer is the acquire path, so a Fade
+// you're forced to consider is worth less than its raw projection. This is the
+// optimizer-layer discount; the value layer (alerts.valueAlert) shifts the
+// price threshold separately (T4). Drain paths never call blendPts, so this
+// never inflates a poison-pill target's value.
+const DEFAULT_FADE_DISCOUNT = 0.9;
+
+/**
+ * Starter ceiling-tilted projection — replaces the raw median as the
+ * optimizer's `pts`. `0.7·median + 0.3·ceiling`, so a symmetric player
+ * returns its median, an upside player (ceiling ≫ median) blends above it,
+ * and a missing ceiling degrades to the median (median-only data is safe). A
+ * Fade is further discounted (acquire only). See the file header for why this
+ * is starter-only.
+ */
+export function blendPts(p: BlendInput, opts: BlendPtsOptions = {}): number {
+  const med = p.projMedian;
+  const pts =
+    p.projCeiling === undefined ? med : BLEND_MEDIAN * med + BLEND_CEILING * p.projCeiling;
+  return p.fade ? pts * (opts.fadeDiscount ?? DEFAULT_FADE_DISCOUNT) : pts;
 }

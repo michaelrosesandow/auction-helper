@@ -24,7 +24,9 @@ export interface SolverPlayer {
   pos: SkillPos;
   /** expected price (inflation-adjusted marketValue for unsold; actual for won) */
   cost: number;
-  /** projected season points (median) */
+  /** projected season points — a ceiling-tilted blend resolved by the caller
+   *  via optimize.blendPts, NOT necessarily the raw median. The solver is
+   *  agnostic to how pts was derived; it just maximizes Σ pts. */
   pts: number;
 }
 

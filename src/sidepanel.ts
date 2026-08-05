@@ -10,7 +10,7 @@ import {
   valueAlert,
 } from "./engine/alerts.js";
 import type { NominationCandidate, NominationStrategy } from "./engine/alerts.js";
-import { optimizeRoster, type OptPlayer, type QBOption } from "./engine/optimize.js";
+import { blendPts, optimizeRoster, type OptPlayer, type QBOption } from "./engine/optimize.js";
 import { isStale, POLL_INTERVAL_MS, type PollPayload } from "./engine/poll.js";
 import {
   DOM_PROBE_KEY,
@@ -657,11 +657,16 @@ function liveTeamsHtml(s: DraftState): string {
 }
 
 // ── QB strategy (live re-solve) ─────────────────────────────────────────────
-// Maps the loaded rankings (marketValue × inflation → expected price,
-// projMedian → pts) into the optimizer's pool, excludes sold players, and
-// re-solves the optimal QB starter pair + skill roster against your remaining
-// budget. Renders the top near-equal pairs with a price headroom so you can
-// see the landscape (not one brittle "answer") react as QBs sell/get bid up.
+// Maps the loaded rankings into the optimizer's pool: marketValue × inflation
+// → expected price (cost), and a starter ceiling-tilt BLEND → pts. The solver
+// is starter-only by architecture (it optimizes the 6 skill STARTER slots; the
+// bench is $1 leftovers, the backup QB a flat allowance), so there is no bench
+// role to value. The blend degrades to the median for median-only data (current
+// QBs). This is the acquire path, so Fades are discounted inside blendPts.
+// Excludes sold players, then optimizeRoster re-solves the optimal QB starter
+// pair + skill roster against your remaining budget — rendering the top
+// near-equal pairs with a price headroom so the landscape (not one brittle
+// "answer") reacts as QBs sell/get bid up.
 function optPoolFromRankings(s: DraftState, players: readonly Player[]): OptPlayer[] {
   const inflation = Number.isFinite(s.inflation) ? s.inflation : 1;
   const sold = new Set(s.sold.map((row) => row.playerId));
@@ -674,7 +679,7 @@ function optPoolFromRankings(s: DraftState, players: readonly Player[]): OptPlay
       continue;
     }
     const cost = Math.max(1, Math.round(p.marketValue * inflation));
-    out.push({ id: p.id, name: p.name, pos: p.pos, cost, pts: p.projMedian });
+    out.push({ id: p.id, name: p.name, pos: p.pos, cost, pts: blendPts(p) });
   }
   return out;
 }
