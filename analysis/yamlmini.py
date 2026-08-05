@@ -7,7 +7,8 @@ The tier files (data/tiers/{pos}.yml) use a small, fixed slice of YAML:
   - each tier mapping: scalar fields (tier, subtier, big_break_after,
     dead_zone) + a `players:` block sequence
   - each player: a flow mapping `{name: ..., profile: ..., target: true, ...}`
-    (block-style `- name: ...` mappings are also accepted)
+    (single- or multi-line -- the tier files use a one-field-per-line form;
+    block-style `- name: ...` mappings are also accepted)
 
 This is NOT a general YAML parser -- it handles exactly that subset. It exists
 because analysis/ is pure-stdlib (no PyYAML). If you ever add PyYAML, swap the
@@ -150,6 +151,25 @@ def _parse_map(lines, i, indent):
     return out, i
 
 
+def _brace_depth(s: str) -> int:
+    """Net change in `{`/`}` depth across `s`, ignoring braces inside quotes.
+    Used to tell when a flow mapping opened on one line has closed (the tier
+    files spread a flow mapping across several lines)."""
+    depth = 0
+    quote = None
+    for ch in s:
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in ('"', "'"):
+            quote = ch
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+    return depth
+
+
 def _parse_seq(lines, i, indent):
     out: list = []
     n = len(lines)
@@ -163,30 +183,39 @@ def _parse_seq(lines, i, indent):
         if not content.startswith("- "):
             break
         item = content[2:].strip()
-        if item.startswith("{") and item.endswith("}"):
-            out.append(_flow(item))
+        # Flow mapping `{...}` -- may span multiple lines. Join continuation
+        # lines until the braces balance (ignoring braces inside quotes), then
+        # parse the whole mapping at once. Single-line flow balances
+        # immediately, so no continuation is consumed.
+        if item.startswith("{"):
+            joined = item
+            j = i
+            while _brace_depth(joined) > 0 and j + 1 < n:
+                j += 1
+                joined += " " + lines[j][1]
+            if _brace_depth(joined) == 0:
+                out.append(_flow(joined))
+                i = j + 1
+                continue
+            # unbalanced -- not a flow mapping; treat the opener as a scalar
+            out.append(_value(item))
             i += 1
-        elif ":" in item:
+            continue
+        if ":" in item:
             # `- key: value` mapping item; first field on this line, the rest on
             # deeper continuation lines. item_indent = where content sits after
             # the dash (dash + space = 2 cols).
             item_indent = indent + 2
-            first_key, sep, first_val = item.partition(":")
-            mp: dict = {}
-            if sep == ":":
-                first_key = first_key.strip()
-                first_val = first_val.strip()
-                mp[first_key] = _value(first_val) if first_val != "" else None
-                rest, i = _parse_map(lines, i + 1, item_indent)
-                mp.update(rest)
-            else:
-                out.append(_value(item))
-                i += 1
-                continue
+            first_key, _, first_val = item.partition(":")
+            fk = first_key.strip()
+            fv = first_val.strip()
+            mp: dict = {fk: _value(fv) if fv != "" else None}
+            rest, i = _parse_map(lines, i + 1, item_indent)
+            mp.update(rest)
             out.append(mp)
-        else:
-            out.append(_value(item))
-            i += 1
+            continue
+        out.append(_value(item))
+        i += 1
     return out, i
 
 
