@@ -11,7 +11,7 @@
 Run:  python3 generate_review_html.py   →  review.html
 (Regenerates from out/players.json + out/qb_strategies.json + league history.)
 """
-import csv, os, re, json
+import csv, html, os, re, json
 from common import load_projections, points, LeagueConfig
 
 HERE = os.path.dirname(__file__)
@@ -71,6 +71,11 @@ for p in sorted(players, key=lambda x: (x["pos"], x["rank"])):
                 "big-break" if p.get("big_break_after") else ""]:
         if tag:
             sig = (sig + " " if sig else "") + tag
+    # Author commentary (data/tiers/*.yml `note`) is shown muted under the
+    # tags in the Signals cell -- not as a stray data-* attribute (that was a
+    # bug: it was emitted after the <tr>'s `>`, so it rendered as raw text).
+    if p.get("note"):
+        sig = f'{sig} <span class="nt">{html.escape(p["note"])}</span>'.strip()
     rows.append({
         "name": p["name"], "pos": p["pos"], "rk": p["rank"],
         "projrk": p.get("proj_rank"), "profile": p.get("profile") or "",
@@ -326,7 +331,8 @@ html = f"""<!doctype html><html><head><meta charset="utf-8">
  th.l,td.l{{text-align:left}} td.flag{{color:#c0392b;font-weight:600}}
  td.myrk{{color:#1a73e8;font-weight:700}}
  td.ovr{{color:#b7791f;font-weight:700}}
- td.sig{{color:#c0392b;font-weight:600;white-space:normal;max-width:120px}}
+ td.sig{{color:#c0392b;font-weight:600;white-space:normal;max-width:200px}}
+ .nt{{display:block;font-weight:400;color:#888;font-size:11px;margin-top:2px}}
  tr.hide{{display:none}} .low{{color:#27ae60}} .high{{color:#c0392b}}
  input{{padding:5px 8px;width:200px;border:1px solid #ccc;border-radius:6px}}
  .note{{background:#fffbe6;border:1px solid #f0d000;padding:10px;border-radius:6px;margin:10px 0;font-size:13px}}
@@ -409,7 +415,7 @@ Price what-ifs live in <code>analysis/scenarios.csv</code> (applied at the optim
  <th class="l">History (recent first)</th><th>Signals</th>
 </tr></thead><tbody>
 {chr(10).join(
- f'<tr data-pos="{r["pos"]}">' + (f' data-note="{r["note"]}"' if r["note"] else "") + 
+ f'<tr data-pos="{r["pos"]}">' + 
  f'<td class="l">{r["name"]}</td><td>{r["pos"]}</td>'
  f'<td>{r["rk"]}</td><td>{r["projrk"] or ""}</td>'
  f'<td class="prof">{r["profile"] or ""}</td>'
