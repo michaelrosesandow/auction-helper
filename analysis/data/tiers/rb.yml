@@ -225,22 +225,26 @@ tiers:
           fade: true,
           note: "peripherals shot; some early points but not meaningful ones",
         }
-      - { name: Tank Bigsby, profile: upside-swing, target: true }
+      - { name: Tank Bigsby, profile: boom-bust, target: true }
       - { name: Dylan Sampson, profile: upside-swing, target: true }
       - { name: Tyjae Spears, profile: upside-swing }
       - { name: Emmett Johnson, profile: upside-swing, target: true }
-      - { name: Ray Davis, profile: upside-swing, target: true }
-      - { name: Marshawn Lloyd, profile: upside-swing, target: true }
-      - { name: Demond Claiborne, profile: upside-swing, target: true }
+      - { name: Ray Davis, profile: boom-bust, target: true }
+      - { name: Marshawn Lloyd, profile: boom-bust, target: true }
+      - { name: Demond Claiborne, profile: boom-bust, target: true }
       - { name: Jaydon Blue, profile: upside-swing, target: true }
       - { name: Isiah Pacheco, profile: upside-swing }
       - { name: Jonah Coleman, profile: upside-swing }
       - { name: "Mike Washington Jr.", profile: upside-swing }
 
-  # ── Tier 6b: deep contingency plays; rookies/2nd-year = upside-swing ────────
-  # Profiles here are ARCHETYPE-INFERRED for the no-signal names (rookies and
-  # 2nd-year backs -> upside-swing; established vets -> veteran-floor; truly
-  # unknown -> clean-symmetric). Targets/fades are verbatim from the article.
+  # ── Tier 6b: deep contingency plays (boom-bust band) ────────
+  # Contingency backs (role depends on injury / the guy ahead of them): the
+  # band is boom-bust (bimodal -- unstartable, or a ton of work if the starter
+  # goes down). upside-swing is reserved for players with prose arguing a
+  # durable upside path, which these lack. Established vets -> veteran-floor;
+  # truly unknown -> clean-symmetric. Targets/fades are verbatim from the
+  # article -- price-sensitivity is orthogonal to band shape, so a target can
+  # still be a boom-bust contingency bet.
   - tier: 6
     subtier: 2 # 6b
     players:
@@ -253,10 +257,10 @@ tiers:
       - { name: Tyler Allgeier, profile: efficiency-fade, fade: true }
       - { name: Zach Charbonnet, profile: efficiency-fade, fade: true }
       - { name: Alvin Kamara, profile: efficiency-fade, fade: true }
-      - { name: Adam Randall, profile: upside-swing, target: true }
-      - { name: Kaelon Black, profile: upside-swing }
-      - { name: Isaiah Davis, profile: upside-swing }
-      - { name: Braelon Allen, profile: upside-swing }
+      - { name: Adam Randall, profile: boom-bust, target: true }
+      - { name: Kaelon Black, profile: boom-bust }
+      - { name: Isaiah Davis, profile: boom-bust }
+      - { name: Braelon Allen, profile: boom-bust }
       - {
           name: "Brian Robinson Jr.",
           profile: veteran-floor,
@@ -267,45 +271,45 @@ tiers:
       - { name: Sean Tucker, profile: clean-symmetric }
       - {
           name: Tahj Brooks,
-          profile: upside-swing,
+          profile: boom-bust,
           target: true,
           note: "shot in the dark at maybe the league's most open No.2 role",
         }
-      - { name: Jaylen Wright, profile: upside-swing }
+      - { name: Jaylen Wright, profile: boom-bust }
       - { name: Justice Hill, profile: veteran-floor }
       - { name: Emari Demercado, profile: veteran-floor }
-      - { name: Kaytron Allen, profile: upside-swing }
-      - { name: DJ Giddens, profile: upside-swing }
-      - { name: Jordan James, profile: upside-swing }
+      - { name: Kaytron Allen, profile: boom-bust }
+      - { name: DJ Giddens, profile: boom-bust }
+      - { name: Jordan James, profile: boom-bust }
       - {
           name: Trey Benson,
-          profile: upside-swing,
+          profile: boom-bust,
           target: true,
           note: "interesting if roster changes or stays healthy",
         }
-      - { name: Nicholas Singleton, profile: upside-swing }
-      - { name: Kimani Vidal, profile: upside-swing }
-      - { name: Seth McGowan, profile: upside-swing }
-      - { name: Ollie Gordon, profile: upside-swing }
+      - { name: Nicholas Singleton, profile: boom-bust }
+      - { name: Kimani Vidal, profile: boom-bust }
+      - { name: Seth McGowan, profile: boom-bust }
+      - { name: Ollie Gordon, profile: boom-bust }
       - {
           name: Malik Davis,
-          profile: upside-swing,
+          profile: boom-bust,
           target: true,
           note: "thrives if Blue stumbles in a less-open No.2 battle",
         }
-      - { name: Jawhar Jordan, profile: upside-swing }
-      - { name: Trevor Etienne, profile: upside-swing }
-      - { name: Raheim Sanders, profile: upside-swing }
-      - { name: Jarquez Hunter, profile: upside-swing }
-      - { name: Devin Neal, profile: upside-swing }
+      - { name: Jawhar Jordan, profile: boom-bust }
+      - { name: Trevor Etienne, profile: boom-bust }
+      - { name: Raheim Sanders, profile: boom-bust }
+      - { name: Jarquez Hunter, profile: boom-bust }
+      - { name: Devin Neal, profile: boom-bust }
       - { name: Devin Singletary, profile: veteran-floor }
       - { name: Samaje Perine, profile: veteran-floor }
       - {
           name: Kendre Miller,
-          profile: upside-swing,
+          profile: boom-bust,
           target: true,
           note: "interesting if healthy + decent preseason",
         }
       - { name: Will Shipley, profile: clean-symmetric }
       - { name: Roschon Johnson, profile: veteran-floor }
-      - { name: Isaac Guerendo, profile: upside-swing }
+      - { name: Isaac Guerendo, profile: boom-bust }
