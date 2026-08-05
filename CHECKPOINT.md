@@ -3,11 +3,12 @@
 **Last updated:** 2026-08-04 (session: live QB-strategy monitor — `solver.ts` + `optimize.ts` engine + Live-tab panel)
 
 > **Git state:** see `git log`. `tsc` / `oxlint` / `knip` / **130 tests** / `build` all green.
-**Purpose:** Let a fresh session resume this work without rediscovering the
-Yahoo draft-room DOM, the probe architecture, or the par-sheet modeling
-pipeline. Read this, then `PLAN.md` (scope) and `AGENTS.md` (conventions).
+> **Purpose:** Let a fresh session resume this work without rediscovering the
+> Yahoo draft-room DOM, the probe architecture, or the par-sheet modeling
+> pipeline. Read this, then `PLAN.md` (scope) and `AGENTS.md` (conventions).
 
 There are **two workstreams**:
+
 1. **Live-draft extension** (`src/`) — the Chrome MV3 helper. Status below.
 2. **Pre-draft strategy analysis** (`analysis/`) — derive the optimal 2026
    par sheet from league price history + ADP + projections. Status in its own
@@ -44,7 +45,7 @@ cost model + hill-climb optimizer), and the exact 0/1-knapsack solver
 **Decision: run the re-solve in the content script — no local server** (a full
 per-tick re-solve is ~0.9 ms, ~0.04% of the 2 s poll). **Next big step:** lift
 the solver into `src/engine/` as `optCompletion` (exclude sold, lock filled
-slots, re-budget) so the par sheet becomes *live* and `nominationSuggest` /
+slots, re-budget) so the par sheet becomes _live_ and `nominationSuggest` /
 `valueAlert` ceilings become roster-grounded — this supersedes the old
 "transcribe into `DEFAULT_WEIGHTS`" plan. Details: "Live re-solve" under the
 `analysis/` section.
@@ -108,7 +109,7 @@ standalone artifact until wired into `src/engine/`. When ported in, re-tool the
 ### Live QB-strategy monitor (`src/engine/optimize.ts` + Live tab) — 2026-08-04
 
 **What it is.** A live re-solve that, every poll tick, finds the optimal **QB
-starter pair** (QB1 + Superflex) given current prices and renders the *landscape*
+starter pair** (QB1 + Superflex) given current prices and renders the _landscape_
 of near-equal pairs (not one brittle "answer") with a **price headroom** each.
 Motivation: the QB-pair decision is price-sensitive (a couple $ shifts it), the
 QB tier is flat (Lawrence QB11 → Kyler QB17 ≈ 10 pts), and median projections are
@@ -116,9 +117,9 @@ uncertain — so the tool must show a plateau + break-evens, react as QBs sell /
 get bid up, and never make you wait on one "optimal" name.
 
 - **`optimizeRoster({players, budget, backupQbAllowance=7, topN=6})`** enumerates
-  *every* unsold QB starter pair; for each, `optSkill` solves the 2RB+2WR+1TE+FLEX
+  _every_ unsold QB starter pair; for each, `optSkill` solves the 2RB+2WR+1TE+FLEX
   roster at the leftover budget (`budget − reserves − backupQbAllowance −
-  qbCost`). Ranks by `qbPts + skill.pts`. Each `QBOption` carries `gapToBest`
+qbCost`). Ranks by `qbPts + skill.pts`. Each `QBOption` carries `gapToBest`
   (pts) and a signed **`priceSwing`** ($): leader = +headroom before the
   runner-up overtakes; challenger = −$ to tie. Caller maps the loaded rankings →
   `OptPlayer` (`cost = marketValue × inflation`, `pts = projMedian`) and excludes
@@ -126,7 +127,7 @@ get bid up, and never make you wait on one "optimal" name.
 - **`src/sidepanel.ts` `liveQbStratHtml`** renders the top pairs table in the Live
   tab (QB pair / $ / Pts / Δ / vs-best) with the leader highlighted. Pure engine;
   ~1 ms/tick, runs in the sidepanel render.
-- **Corrected finding:** the manual `04_qb_strategies.py` only tested *hand-picked*
+- **Corrected finding:** the manual `04_qb_strategies.py` only tested _hand-picked_
   pairs and **missed the true optimum**. Full enumeration shows that with a cheap
   backup ($7), **Kyler + Purdy (2104)** beats Dak + Purdy (2094, ~7th) — Kyler
   saves $5 over Dak and on the steep part of the skill frontier that buys ~21 pts,
@@ -136,13 +137,14 @@ get bid up, and never make you wait on one "optimal" name.
   enumeration > a fixed plan.**
 
 **Outstanding work (the v2):**
+
 1. **Move the solve into the content-script poll loop** + attach
    `{optimalRoster, topPairs}` to `DraftState`/`PollPayload` so it persists with
    the panel closed and can drive `chrome.notifications` ("your lead pair just
    flipped — Dak > $X"). Currently sidepanel-render-only.
 2. **Lock already-won players** into their slots (`filled` param) instead of
    re-planning the full roster each tick. Today it excludes sold + plans the
-   *remaining* budget — correct for "what next" but slightly over-free mid-draft
+   _remaining_ budget — correct for "what next" but slightly over-free mid-draft
    (won't "un-pick" a player you already bought; it just won't see him as
    available).
 3. **Per-player price overrides.** Prices = `marketValue × inflation` (aggregate)
@@ -167,12 +169,12 @@ get bid up, and never make you wait on one "optimal" name.
 
 ### Inputs (all in `~/Downloads`, NOT committed)
 
-| File | What |
-| --- | --- |
-| `Avant League History - Data.csv` | This league's prices 2015–2025 (SF since '19). Cols padded with spaces — `.strip()` every field. |
+| File                                                           | What                                                                                                                        |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `Avant League History - Data.csv`                              | This league's prices 2015–2025 (SF since '19). Cols padded with spaces — `.strip()` every field.                            |
 | `Avant League History - Historical ADP - Fantasy Pros (2).csv` | FantasyPros ADP + this league's SF `Auction Paid`, 2021–2025. **2026 rows have Position Rank but blank ADP/$** (rank-only). |
-| `FantasyPros_2026_Overall_ADP_Rankings.csv` | **Real 2026 ADP** (1-QB!). Cols `Rank,Player (Bye),POS,Yahoo,Sleeper,RTSports,AVG,Real-Time`. 327 players. |
-| `Ben Gretch 2026 Projections (7_23).xlsx` | 2026 projections. 4 sheets QB/RB/WR/TE (raw stats, single-point). Parsed as zip-of-XML (no openpyxl). |
+| `FantasyPros_2026_Overall_ADP_Rankings.csv`                    | **Real 2026 ADP** (1-QB!). Cols `Rank,Player (Bye),POS,Yahoo,Sleeper,RTSports,AVG,Real-Time`. 327 players.                  |
+| `Ben Gretch 2026 Projections (7_23).xlsx`                      | 2026 projections. 4 sheets QB/RB/WR/TE (raw stats, single-point). Parsed as zip-of-XML (no openpyxl).                       |
 
 ### Pipeline (`cd analysis && python3 <file>`)
 
@@ -186,14 +188,27 @@ get bid up, and never make you wait on one "optimal" name.
 - `02_value.py` — VORP + fair$ (over-engineered; fair$ MAE $17, diverges from
   market for mid-QBs). Has a hook to read `out/prices_2026.csv` (user-supplied
   per-player prices) — **not currently used** (build_2026 owns cost now).
-- `05_adp_cost.py` — ADP-*value*-based cost (price ~ FantasyPros AVG ADP).
+- `05_adp_cost.py` — ADP-_value_-based cost (price ~ FantasyPros AVG ADP).
   **Too choppy** (sparse buckets → Dak $1 / Mahomes $21 nonsense). Kept for
   reference; **rank-based (build_2026) is the live cost model.**
-- **`build_2026.py` — THE cost pipeline.** Within-position **ADP rank** → this
-  league's SF price via a **recency-weighted monotonic median** (`YEAR_WEIGHTS
-  = {21:1,22:1,23:2,24:3,25:4}` — see "Cost basis" below); matches projections
-  by normalized name; writes **`out/players.json`** (`name,pos,rank,cost,pts`).
-  Re-run this if inputs change. Pass `{y:1}` to `cost_curve()` for the flat median.
+- **`build_2026.py` — THE cost pipeline (base table).** Within-position **ADP rank**
+  → this league's SF price via a **recency-weighted monotonic median**
+  (`YEAR_WEIGHTS = {21:1,22:1,23:2,24:3,25:4}` — see "Cost basis" below); matches
+  projections by normalized name; writes the BASE `out/players.json`
+  (`name,pos,rank,cost,pts`). Re-run if inputs change. Pass `{y:1}` to
+  `cost_curve()` for the flat median.
+- **`assemble.py` — THE canonical-table join (retires `apply_overrides.py` /
+  `my_rankings.csv`; TODO T2).** Joins the base table + `data/tiers/*.yml`
+  (tier assessment) + `rubric.py` (profile → floor/ceiling fractions) → the
+  canonical `out/players.json` (median is NEVER moved: `floor=pts*frac`,
+  `ceiling=pts*frac`, plus tier/subtier/profile/target/fade/big_break_after/
+  dead_zone/note) AND `out/players.csv` (the ONE artifact the extension imports
+  via `rankings.ts`). Idempotent. `yamlmini.py` is its zero-dep YAML-subset
+  parser; `rubric.py` is the single band-calibration source; `scenarios.csv` is
+  the new home for what-if price overrides (applied at the optimizer, not
+  here — wiring into `03_optimize.py` is a small follow-up). Only RB is tiered
+  today (`data/tiers/rb.yml`, all 60 ranked RBs); QB/WR/TE get a coarse
+  rank-cohort fallback tier until authored.
 - **`03_optimize.py` — hill-climbing optimizer.** 1-opt (all slots) + 2-opt
   rebudget (starter pairs, **incremental** eval) + basin-hopping. Objective =
   starter pts + **optionality-weighted bench** (`BENCH_NEED`, see the
@@ -228,7 +243,7 @@ get bid up, and never make you wait on one "optimal" name.
   (collinear features → predictions rise with rank), and 2024-25-only (n=2/rank,
   too noisy — weighted median is the sweet spot).
 - **1-QB ADP → SF league gap is handled** by pricing the rank against this
-  league's SF history (premium baked in). Only the within-position *order* is
+  league's SF history (premium baked in). Only the within-position _order_ is
   taken from ADP; the absolute QB position shift doesn't matter.
 - **Objective = starter pts + optionality-weighted bench.** A flat `BENCH_W` is
   wrong both ways: `=0` forced stars-and-scrubs (bench all $1); `=0.25` stuffed
@@ -244,9 +259,10 @@ get bid up, and never make you wait on one "optimal" name.
   picks a **$6 value backup** (Shough/Baker tier), and starter pts hold at
   **2036** (the $6 backup laterally displaces a $6 bench WR — ~0 insurance tax).
   Starter-only optimum was **2073 pts**; under the bench-aware objective
-  OPTIMAL = **2036 starter + ~190 bench-value = 2225 obj**. (`ceiling` data is
-  still blank in `players.json`, so median pts stand in for the `ceiling` term;
-  swap in real ceilings when available.)
+  OPTIMAL = **2036 starter + ~190 bench-value = 2225 obj**. (**RESOLVED:**
+  `assemble.py` now populates `floor`/`ceiling` from tier profiles via
+  `rubric.py` — they are no longer blank; TODO T3 wires a ceiling-tilted
+  objective on top of them.)
 - **Verified ranks:** the 2026 ADP-only ranks in the historical file exactly
   match the real FantasyPros 2026 ADP ordering (Stroud really is ~QB23 across
   Yahoo/Sleeper/RTSports). So cheap-mid-QB values are real consensus, not noise.
@@ -262,9 +278,9 @@ WR1 $36, WR2 $15, TE $18, FLEX $59, SF $17, K $1, DST $1, BN1 $6 (WR), BN2 $1
 (=$200). Every build rosters **3 QBs** (2 start + 1 backup) per the user's
 insurance rule. The model spends ~$20 on cheap WR/RB depth + a $6 backup QB
 instead of punting all 5 bench slots to $1. Strategy unchanged: **don't pay up
-for an elite QB** (two mid-QBs ~$11–17 ≈ Allen/Lamar within ~30 pts for 1/3 the
+for an elite QB** (two mid-QBs ~$11–17 ≈ Allen/Lamar within ~~30 pts for 1/3 the
 cost); spend elite $ on **RB1 + WR1** (~$55–60 each); **TE** target TE2–3
-(~$18–22) or punt to $1–4 (Bowers $32 is worst value); fill RB2/WR2/FLEX with
+(~~$18–22) or punt to $1–4 (Bowers $32 is worst value); fill RB2/WR2/FLEX with
 $6–17 mid-tier values; bench = ~$6 upside WR/RB + $1 handcuffs.
 
 ### Caveats a fresh session MUST carry
@@ -277,7 +293,7 @@ $6–17 mid-tier values; bench = ~$6 upside WR/RB + $1 handcuffs.
 - **Elite-QB finding is median-only.** Gretch is single-point (no ceiling).
   Allen/Lamar's week-winning ceilings are undersold; if you weight ceiling,
   paying for one top-5 QB is defensible. **Ceiling-tilted variant not yet built.**
-- **1-QB ADP:** your SF room may bid the QB12–24 tier *up* vs 1-QB ADP rank (2
+- **1-QB ADP:** your SF room may bid the QB12–24 tier _up_ vs 1-QB ADP rank (2
   QBs start). Treat $6 mid-QB figures as a floor (~$10–12 live).
 - **Re-validate in August** — spring ADP firms up. Re-paste updated FantasyPros
   ADP and re-run `build_2026.py` → `03_optimize.py`; nothing else changes.
@@ -290,8 +306,9 @@ should port; the lessons change how to read the par sheet.
 
 **1. Attrition study — `analysis/attrition_study.py`** (reproducible; re-fetches
 nflverse `snap_counts` 2018–2024 into `_nfl/`). Derives a per-position
-*realization* haircut on median projections = fraction of the season an expected
+_realization_ haircut on median projections = fraction of the season an expected
 starter (top-N on own team by Wk 1–3 snaps) actually keeps a starter role.
+
 - **Availability (games played) is flat ~84% across skill positions** — RBs are
   NOT uniquely injury-prone at this cohort; the "RBs get hurt most" folk wisdom
   doesn't hold here.
@@ -309,6 +326,7 @@ starter (top-N on own team by Wk 1–3 snaps) actually keeps a starter role.
   bench for the 74% case, not the 24% "zero injuries" case.**
 
 Recommended realization priors (rank-proxy for tier), multiply median pts by:
+
 ```
 QB 0.76 (rk≤16) / 0.50      RB 0.80(rk≤6) / 0.76(rk≤16) / 0.71(rk≤30) / 0.60
 WR 0.77 (rk≤12) / 0.63      TE 0.73 (rk≤6) / 0.53
@@ -317,6 +335,7 @@ WR 0.77 (rk≤12) / 0.63      TE 0.73 (rk≤6) / 0.53
 **2. Max-bid calculator — `analysis/05_max_bid.py`.** For each target, the
 highest price where the optimal roster STILL includes him vs the best roster
 that excludes him (the pivot); above it, pivot. Two columns:
+
 - **RAW** = median points only. **REAL** = median × realization. Same fast 1-opt
   climb; relative comparison is what's sound. Read `gap = REAL − market`: + room
   to spend, − even at market the pivot wins. It's a CEILING, not a target.
@@ -331,6 +350,7 @@ that excludes him (the pivot); above it, pivot. Two columns:
   WR1). Fix = try all eligible slots, take best.
 
 **3. Lessons that change the par sheet / objective** (carried forward):
+
 - **Bench is now valued as optionality, not raw points** (the flat-`BENCH_W`
   contradiction is RESOLVED — see the "Objective" methodology bullet above). A
   bench player's value = `pts × P(needed)×0.5season`; **exactly 1 bench QB is
@@ -368,26 +388,29 @@ that excludes him (the pivot); above it, pivot. Two columns:
 
 2. **User is reviewing `review.html`.** Likely wants either an editable
    "adjusted price" column in the HTML, or will hand back a list of repriced
-   players to feed the optimizer. (The `out/prices_2026.csv` hook in
-   `02_value.py` expects `name,position,predicted_price` if used, but the live
-   path is `build_2026.py` → `players.json` — wire overrides there.)
+   players to feed the optimizer. (What-if price overrides now live in
+   `analysis/scenarios.csv`, applied at the optimizer — wiring them into
+   `03_optimize.py` is the small follow-up. The old `my_rankings.csv` /
+   `apply_overrides.py` path is RETIRED.)
 3. **~~Wire the par sheet into `DEFAULT_WEIGHTS`~~ → SUPERSEDED.** The static
-   transcription is replaced by a *live* re-solve: port `optCompletion` into
+   transcription is replaced by a _live_ re-solve: port `optCompletion` into
    `src/engine/` (content-script poll loop) → live par sheet + roster-grounded
    `nominationSuggest` / `valueAlert` ceiling. The TS solver foundation is done
-   & validated; the wiring is the next step. *(Issue 1: pivot /
-   regenerate-optimal-roster-on-the-fly when you miss a target.)*
+   & validated; the wiring is the next step. _(Issue 1: pivot /
+   regenerate-optimal-roster-on-the-fly when you miss a target.)_
 4. **Ceiling-tilted variant** — force one top-5 QB, re-optimize, quantify the
-   starter-pts cost; produces a Plan B par sheet. Offered, not done.
+   starter-pts cost; produces a Plan B par sheet. **Now UNBLOCKED** — TODO T2
+   landed real floor/ceiling data (`assemble.py` + `rubric.py`); this becomes
+   TODO T3 (role-weighted blended objective). Offered, not done.
 5. Generate the `prices_2026.csv`-style market-value feed the live **value-alerts**
    engine (`src/engine/alerts.ts` `valueAlert`) will consume in-draft.
 6. **Port realization + max-bid into the TS real-time solver.** Apply the
    realization priors above as a haircut on projected pts in the objective; add
    a max-bid calc per nominated target ("bid on this guy now" / ceiling + gap vs
    live inflation-adjusted market). Keep the anchor-value-consistent-with-pool
-   rule (see bug note) or bids will be inflated. *(The solver foundation landed
+   rule (see bug note) or bids will be inflated. _(The solver foundation landed
    this session — `analysis/ts-solver/solver.ts`; this item = layering
-   realization priors + a max-bid calc on top of it.)*
+   realization priors + a max-bid calc on top of it.)_
 7. **✅ DONE — recency-weighted the cost model** (reframed from "fix SF QB
    curve"). The flat 5-yr median was stale, not wrong: the room's mid-QB prices
    rose ~2× since 2021 while mid/elite RB prices FELL (a structural budget
@@ -416,23 +439,23 @@ that excludes him (the pivot); above it, pivot. Two columns:
 
 Three Chrome contexts; pure engine layer pending.
 
-| File                      | Role                                                                                                                                                                                                                                                                                                                                                            |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/probe.ts`            | **`captureDomProbe()`** — ONE self-contained function (constants inline, helpers nested) so it serializes cleanly via `chrome.scripting.executeScript({ func })`. Produces `{ meta, skeleton, textMap, html }`.                                                                                                                                                 |
-| `src/content.ts`          | Resident in the draft tab: `Alt+Shift+P` + `?probe=1` probe triggers, **and the poll loop** — a `setInterval` that scrapes → `toDraftState` (rankings-aware) → `stateSignature` diff → writes `DRAFT_STATE_KEY`. Rankings auto-refresh on league/import changes.                                                                                                |
-| `src/sidepanel.ts`        | UI: Par Sheet / Rankings / **Live** / Probe tabs. **Live tab = the alert surface**: freshness/stale badge, endgame-leverage banner, phase/inflation, current nomination (value flag), tier cliffs, and a per-team grid with budget / max-bid / must-fill (boxed-in highlight). Probe tab = Capture now (via `executeScript`, no CS dependency) + download/copy. |
-| `src/messages.ts`         | Shared types: `DOM_PROBE_KEY`, `DRAFT_STATE_KEY`, `DRAFT_ROOM_KEY`, `DomProbe`, `ProbeMeta`, `TextEntry`, `ProbeResponse`.                                                                                                                                                                                                                                      |
-| `src/scraper.ts`          | **Live-state scraper.** Pure parsers (tested) + DOM scrapers → `scrapeDraftRoom(root)`. Exports `ScrapedDraftRoom`/`ScrapedNomination` for the engine.                                                                                                                                                                                                          |
-| `src/engine/match.ts`     | **Name resolver** — `createNameResolver(players)` maps Yahoo's abbreviated names ("J. Hurts", DST nicknames) → `Player`, narrowing by position. Pure, tested.                                                                                                                                                                                                   |
-| `src/engine/map-state.ts` | **Scrape → DraftState mapper** — `toDraftState(room, {players})` reconciles teams/rosters, winner→teamId, nomination, `inferPhase`, `computeInflation`. Pure, tested.                                                                                                                                                                                           |
-| `src/engine/optimize.ts`   | **Live QB-strategy optimizer** — `optimizeRoster({players, budget, backupQbAllowance})`: enumerates every unsold QB starter pair, solves the skill roster (knapsack) for each at the leftover budget, ranks by total pts, and computes a signed `priceSwing` per pair (leader = +$headroom before the runner-up overtakes; challenger = −$ to tie). Prices = `marketValue × inflation` (unsold), sold excluded by the caller. Pure, tested. Rendered in the Live tab. *(Runs in the sidepanel render for now; poll-loop wiring + locking won players are open.)* |
-| `src/engine/solver.ts`     | **Exact skill-starter knapsack** (ported from `analysis/ts-solver/`, re-tooled for oxlint) — `buildFronts(pool, cap, exclude)` + `optSkill(fronts, budget)` pick the optimal 2RB+2WR+1TE+1FLEX ≤ budget. O(1) back-pointer reconstruction; <1 ms over a ~425-player pool. Pure, tested (validated against a brute-force reference). |
-| `src/engine/alerts.ts`    | **Engine alerts** — `maxBidOf`, `teamNeeds`/`opponentNeeds` (max-bid + forced must-fill), `endgameLeverage` ("money off the board"), `valueAlert` (<X% of inflation-adjusted value), `tierCliff` (last of a tier), `nominationSuggest` (poison-pill / cold-market snipe / scare-nominate). Pure, tested.                                                        |
-| `src/engine/poll.ts`      | **Poll-loop pure helpers** — `POLL_INTERVAL_MS`, `STALE_AFTER_MS`, `PollPayload`, `stateSignature` (material-change diff), `isStale`. The chrome/DOM glue is in `src/content.ts`. Pure, tested.                                                                                                                                                                 |
-| `src/par-sheet.ts`        | Drew Davenport par-sheet math (done, tested) + **`reconcileParSheet`** (live auto-fill: assign unplaced wins to their best empty eligible slot; add-only/idempotent so manual edits survive).                                                                                                                                                                   |
-| `src/rankings.ts`         | CSV import (done, tested).                                                                                                                                                                                                                                                                                                                                      |
-| `src/storage.ts`          | Per-league persistence in `chrome.storage.local`.                                                                                                                                                                                                                                                                                                               |
-| `src/types.ts`            | Domain models: `Player`, `Tier`, `ParSheet`, `TeamState`, `Nomination`, `DraftState`, etc.                                                                                                                                                                                                                                                                      |
+| File                      | Role                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/probe.ts`            | **`captureDomProbe()`** — ONE self-contained function (constants inline, helpers nested) so it serializes cleanly via `chrome.scripting.executeScript({ func })`. Produces `{ meta, skeleton, textMap, html }`.                                                                                                                                                                                                                                                                                                                                                  |
+| `src/content.ts`          | Resident in the draft tab: `Alt+Shift+P` + `?probe=1` probe triggers, **and the poll loop** — a `setInterval` that scrapes → `toDraftState` (rankings-aware) → `stateSignature` diff → writes `DRAFT_STATE_KEY`. Rankings auto-refresh on league/import changes.                                                                                                                                                                                                                                                                                                 |
+| `src/sidepanel.ts`        | UI: Par Sheet / Rankings / **Live** / Probe tabs. **Live tab = the alert surface**: freshness/stale badge, endgame-leverage banner, phase/inflation, current nomination (value flag), tier cliffs, and a per-team grid with budget / max-bid / must-fill (boxed-in highlight). Probe tab = Capture now (via `executeScript`, no CS dependency) + download/copy.                                                                                                                                                                                                  |
+| `src/messages.ts`         | Shared types: `DOM_PROBE_KEY`, `DRAFT_STATE_KEY`, `DRAFT_ROOM_KEY`, `DomProbe`, `ProbeMeta`, `TextEntry`, `ProbeResponse`.                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `src/scraper.ts`          | **Live-state scraper.** Pure parsers (tested) + DOM scrapers → `scrapeDraftRoom(root)`. Exports `ScrapedDraftRoom`/`ScrapedNomination` for the engine.                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `src/engine/match.ts`     | **Name resolver** — `createNameResolver(players)` maps Yahoo's abbreviated names ("J. Hurts", DST nicknames) → `Player`, narrowing by position. Pure, tested.                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `src/engine/map-state.ts` | **Scrape → DraftState mapper** — `toDraftState(room, {players})` reconciles teams/rosters, winner→teamId, nomination, `inferPhase`, `computeInflation`. Pure, tested.                                                                                                                                                                                                                                                                                                                                                                                            |
+| `src/engine/optimize.ts`  | **Live QB-strategy optimizer** — `optimizeRoster({players, budget, backupQbAllowance})`: enumerates every unsold QB starter pair, solves the skill roster (knapsack) for each at the leftover budget, ranks by total pts, and computes a signed `priceSwing` per pair (leader = +$headroom before the runner-up overtakes; challenger = −$ to tie). Prices = `marketValue × inflation` (unsold), sold excluded by the caller. Pure, tested. Rendered in the Live tab. _(Runs in the sidepanel render for now; poll-loop wiring + locking won players are open.)_ |
+| `src/engine/solver.ts`    | **Exact skill-starter knapsack** (ported from `analysis/ts-solver/`, re-tooled for oxlint) — `buildFronts(pool, cap, exclude)` + `optSkill(fronts, budget)` pick the optimal 2RB+2WR+1TE+1FLEX ≤ budget. O(1) back-pointer reconstruction; <1 ms over a ~425-player pool. Pure, tested (validated against a brute-force reference).                                                                                                                                                                                                                              |
+| `src/engine/alerts.ts`    | **Engine alerts** — `maxBidOf`, `teamNeeds`/`opponentNeeds` (max-bid + forced must-fill), `endgameLeverage` ("money off the board"), `valueAlert` (<X% of inflation-adjusted value), `tierCliff` (last of a tier), `nominationSuggest` (poison-pill / cold-market snipe / scare-nominate). Pure, tested.                                                                                                                                                                                                                                                         |
+| `src/engine/poll.ts`      | **Poll-loop pure helpers** — `POLL_INTERVAL_MS`, `STALE_AFTER_MS`, `PollPayload`, `stateSignature` (material-change diff), `isStale`. The chrome/DOM glue is in `src/content.ts`. Pure, tested.                                                                                                                                                                                                                                                                                                                                                                  |
+| `src/par-sheet.ts`        | Drew Davenport par-sheet math (done, tested) + **`reconcileParSheet`** (live auto-fill: assign unplaced wins to their best empty eligible slot; add-only/idempotent so manual edits survive).                                                                                                                                                                                                                                                                                                                                                                    |
+| `src/rankings.ts`         | CSV import (done, tested).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `src/storage.ts`          | Per-league persistence in `chrome.storage.local`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `src/types.ts`            | Domain models: `Player`, `Tier`, `ParSheet`, `TeamState`, `Nomination`, `DraftState`, etc.                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 ### Probe triggers (capture the DOM)
 

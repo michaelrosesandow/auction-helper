@@ -124,10 +124,22 @@ function unsoldPlayers(state: DraftState, players: Player[]): Player[] {
 // inflation-adjusted market value. Tunable via ValueAlertOptions.
 export const DEFAULT_VALUE_THRESHOLD = 0.7;
 
+// How far a Target/Fade tag shifts a player's value threshold (TODO T4). A
+// Target raises it (you'll pay closer to fair value — a smaller discount is
+// still a buy, per Gretch's "a Target even if the market is aggressive"); a
+// Fade lowers it (require a steeper discount before it counts as value).
+// Target/Fade are price-sensitivity tags, NOT point adjustments — the median
+// projection is never moved by them.
+export const DEFAULT_TARGET_FADE_DELTA = 0.1;
+
 export interface ValueAlertOptions {
   /** Fraction of inflation-adjusted market value at/below which the live
    * nomination counts as a value. Default 0.7 (i.e. <70% of market). */
   threshold?: number;
+  /** Per-player threshold shift applied for Target (+) / Fade (−) tags, so a
+   * Target flags as value at a smaller discount and a Fade only at a steeper
+   * one. Default 0.1 (10 percentage points). */
+  targetFadeDelta?: number;
 }
 
 export interface ValueAlert {
@@ -140,6 +152,9 @@ export interface ValueAlert {
   inflation: number;
   // marketValue × inflation — what this player "should" cost right now.
   adjustedMarketValue: number;
+  // Effective per-player threshold: the base `threshold` shifted by
+  // `targetFadeDelta` for any Target/Fade tag (TODO T4). Reported so the UI
+  // can show the real cutoff actually used.
   threshold: number;
   // The most you can pay and still call it a value: threshold × adjusted.
   // Actionable as a hard stop ("bid up to $X").
@@ -167,7 +182,20 @@ export function valueAlert(
   if (!player || player.marketValue <= 0) {
     return null;
   }
-  const threshold = opts.threshold ?? DEFAULT_VALUE_THRESHOLD;
+  // Target/Fade price-sensitivity shift (TODO T4). Applied to the THRESHOLD,
+  // never to the projection: a Target raises the cutoff (value at a smaller
+  // discount), a Fade lowers it (value only at a steep discount).
+  const delta = opts.targetFadeDelta ?? DEFAULT_TARGET_FADE_DELTA;
+  let threshold = opts.threshold ?? DEFAULT_VALUE_THRESHOLD;
+  if (player.target) {
+    threshold += delta;
+  }
+  if (player.fade) {
+    threshold -= delta;
+  }
+  // Clamp to [0, 1]: never flag an overpay as value (target), and never treat
+  // a free player as a non-value (fade).
+  threshold = Math.min(1, Math.max(0, threshold));
   const inflation = Number.isFinite(state.inflation) ? state.inflation : 1;
   const adjustedMarketValue = player.marketValue * inflation;
   const valueCeiling = threshold * adjustedMarketValue;
@@ -294,6 +322,14 @@ export interface NominationSuggestions {
   note?: string;
 }
 
+// Cold-market ACQUIRE will overlook a Fade tag only when the live discount
+// is at least this deep (TODO T4). A Fade is excluded from acquire even as a
+// must-fill — you don't want to be stuck with a fade; that's drain territory.
+// Drain strategies (poison-pill / scare-nominate) ignore this entirely: a
+// Fade you don't want is an ideal poison-pill (nominate to drain a rival, and
+// you won't be stuck with it if you win).
+export const DEFAULT_MIN_FADE_DISCOUNT = 0.4;
+
 export interface NominationSuggestOptions {
   /** Max candidates per category. Default 3. */
   limit?: number;
@@ -303,6 +339,10 @@ export interface NominationSuggestOptions {
   /** A position counts as "cold" for your target when at most this many rivals
    * are FORCED to fill it. Default 1 (none, or one desperate rival). */
   coldMarketMaxForced?: number;
+  /** A Fade is excluded from cold-market ACQUIRE even when its position is a
+   * must-fill, unless the live discount is at least this deep. Default 0.4
+   * (≥40% below inflation-adjusted market). Drain strategies are unaffected. */
+  minFadeDiscount?: number;
 }
 
 // Total forced-to-fill slots across all rivals, per position. A position with
@@ -354,6 +394,24 @@ export function nominationSuggest(
   const myMustFill = new Set(teamNeeds(me).mustFill.map((m) => m.pos));
   const demand = forcedDemand(opponentNeeds(state));
   const demandAt = (pos: Position): number => demand.get(pos) ?? 0;
+  const minFadeDiscount = opts.minFadeDiscount ?? DEFAULT_MIN_FADE_DISCOUNT;
+  const inflation = Number.isFinite(state.inflation) ? state.inflation : 1;
+  // Live inflation-adjusted discount for a player vs the current nomination
+  // bid. Only meaningful when this player IS the live nominee (re-evaluating a
+  // bid already in progress); a fresh nomination has no live price yet, so the
+  // discount is 0 — which keeps a Fade excluded from ACQUIRE, exactly as
+  // intended (fades are for DRAIN, not acquire). See TODO T4.
+  const liveDiscount = (p: Player): number => {
+    const adj = p.marketValue * inflation;
+    if (adj <= 0) {
+      return 0;
+    }
+    const nom = state.nomination;
+    const price = nom && nom.playerId === p.id ? nom.currentBid : adj;
+    return (adj - price) / adj;
+  };
+  // A Fade is acquirable only at a deep live discount; everyone else always is.
+  const acquirable = (p: Player): boolean => !p.fade || liveDiscount(p) >= minFadeDiscount;
   const cliffPlayers = tierCliff(state, players)
     .filter((c) => c.isCliff)
     .flatMap((c) => c.players);
@@ -381,10 +439,12 @@ export function nominationSuggest(
     .map((x) => x.c);
 
   // Cold-market snipe — ACQUIRE. Your target or must-fill, in a low-contest
-  // market, and affordable. Ranked: targets first, then by value.
+  // market, and affordable. Fades are excluded even as a must-fill unless the
+  // live discount is deep (TODO T4). Ranked: targets first, then by value.
   const coldMarket = unsold
     .filter(
       (p) =>
+        acquirable(p) &&
         (p.target || myMustFill.has(p.pos)) &&
         demandAt(p.pos) <= coldMarketMaxForced &&
         p.marketValue <= myMaxBid,
@@ -392,10 +452,11 @@ export function nominationSuggest(
     .map((p) => {
       const n = demandAt(p.pos);
       const who = p.target ? "Your target" : `You need a ${p.pos}`;
+      const fadeNote = p.fade ? " (deep discount overrides the fade tag)" : "";
       const reason =
         n === 0
-          ? `${who}; no rival is forced at ${p.pos} — likely cheap.`
-          : `${who}; only one desperate rival at ${p.pos}.`;
+          ? `${who}; no rival is forced at ${p.pos} — likely cheap.${fadeNote}`
+          : `${who}; only one desperate rival at ${p.pos}.${fadeNote}`;
       return {
         c: mkCandidate(p, "cold-market", reason),
         target: p.target ? 1 : 0,

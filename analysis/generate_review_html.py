@@ -40,7 +40,7 @@ with open(HIST) as fh:
 players = json.load(open(os.path.join(HERE, "out", "players.json")))
 players = [p for p in players if p.get("pts")]
 
-# projection-implied rank within position (fallback if apply_overrides wasn't run)
+# projection-implied rank within position (computed here for the review view)
 from collections import defaultdict
 _pr = defaultdict(list)
 for p in players:
@@ -61,21 +61,25 @@ for p in sorted(players, key=lambda x: (x["pos"], x["rank"])):
     if last_paid is not None and p["cost"] is not None:
         if abs(p["cost"] - last_paid) >= 12:
             flag = "⚠ big change"
+    # Signals come from the tier assessment (data/tiers/*.yml), not a rank-gap
+    # heuristic: the profile band + transcribed TARGET/fade/dead-zone/big-break.
     sig = flag
-    if p.get("ceiling") == "up":
-        sig = (sig + " " if sig else "") + "↑ ceiling"
-    elif p.get("ceiling") == "down":
-        sig = (sig + " " if sig else "") + "↓ fade"
+    for tag in [p.get("profile"),
+                "TARGET" if p.get("target") else "",
+                "fade" if p.get("fade") else "",
+                "dead-zone" if p.get("dead_zone") else "",
+                "big-break" if p.get("big_break_after") else ""]:
+        if tag:
+            sig = (sig + " " if sig else "") + tag
     rows.append({
         "name": p["name"], "pos": p["pos"], "rk": p["rank"],
-        "projrk": p.get("proj_rank"), "myrk": p.get("my_rank"),
+        "projrk": p.get("proj_rank"), "profile": p.get("profile") or "",
+        "tier": p.get("tier"), "floor": p.get("floor"), "ceil": p.get("ceiling"),
         "adp": round(p.get("adp", 0)) if p.get("adp") else None,
-        "pred": p["cost"], "ovr": p.get("model_cost"),
-        "pts": p["pts"],
+        "pred": p["cost"], "pts": p["pts"],
         "ppd": round(p["pts"] / p["cost"], 2) if p["cost"] else None,
         "last": last_paid, "lastrk": last_rk, "hist": hstr,
-        "flag": flag, "ceil": p.get("ceiling") or "", "sig": sig,
-        "note": p.get("my_note") or "",
+        "flag": flag, "sig": sig, "note": p.get("note") or "",
     })
 
 # ── cost curves tab data (flat 5yr vs recency-weighted, + year-by-year) ──────
@@ -385,10 +389,12 @@ html = f"""<!doctype html><html><head><meta charset="utf-8">
 <div class="note">⚠ Predicted $ is a <b>rank-based median with wide spread</b> (a QB20 historically cost $4–16).
 Where Pred $ diverges a lot from a player's recent actual $, trust your judgment over the model —
 this league bids names above their rank (e.g. Baker was $33 as QB7 in '25; now QB20 → recency curve says $13, was $6 flat).<br>
-<b>Proj Rk</b> = rank by projected pts (vs the market's <b>26 Rk</b> = ADP rank). <b>My Rk</b> = your rank from
-<code>my_rankings.csv</code> (blue). <b>↑ ceiling</b> = you rank a guy far above his projection (upside the median
-misses); <b>↓ fade</b> = the reverse. Pred $ shown <span style="color:#b7791f">amber</span> = your my_price override.
-Edit <code>my_rankings.csv</code> then <code>python3 run.py --skip-build</code>.</div>
+<b>Proj Rk</b> = rank by projected pts (vs the market's <b>26 Rk</b> = ADP rank). <b>Profile</b> = the projection-band
+archetype from <code>data/tiers/&lt;pos&gt;.yml</code> (compressed-elite / clean-symmetric / veteran-floor /
+efficiency-fade / upside-swing / boom-bust) &mdash; the median is never moved; the profile only shapes the
+floor/ceiling band. <b>Signals</b> carry TARGET / fade / dead-zone / big-break tags transcribed from the article.
+Price what-ifs live in <code>analysis/scenarios.csv</code> (applied at the optimizer). Re-author the YAML then
+<code>python3 run.py</code>.</div>
 <div class="bars">
  <button class="active" data-f="ALL">All</button>
  <button data-f="QB">QB</button><button data-f="RB">RB</button>
@@ -397,7 +403,7 @@ Edit <code>my_rankings.csv</code> then <code>python3 run.py --skip-build</code>.
 </div>
 <table id="t"><thead><tr>
  <th class="l" data-k="name">Player</th><th data-k="pos">Pos</th>
- <th data-k="rk">26 Rk</th><th data-k="projrk">Proj Rk</th><th data-k="myrk">My Rk</th><th data-k="adp">ADP</th>
+ <th data-k="rk">26 Rk</th><th data-k="projrk">Proj Rk</th><th data-k="profile">Profile</th><th data-k="adp">ADP</th>
  <th data-k="pred">Pred $</th><th data-k="pts">Proj Pts</th><th data-k="ppd">Pts/$</th>
  <th data-k="last">'25 $</th><th data-k="lastrk">'25 Rk</th>
  <th class="l">History (recent first)</th><th>Signals</th>
@@ -406,10 +412,9 @@ Edit <code>my_rankings.csv</code> then <code>python3 run.py --skip-build</code>.
  f'<tr data-pos="{r["pos"]}">' + (f' data-note="{r["note"]}"' if r["note"] else "") + 
  f'<td class="l">{r["name"]}</td><td>{r["pos"]}</td>'
  f'<td>{r["rk"]}</td><td>{r["projrk"] or ""}</td>'
- f'<td class="myrk">{r["myrk"] or ""}</td>'
+ f'<td class="prof">{r["profile"] or ""}</td>'
  f'<td>{r["adp"] if r["adp"] else ""}</td>'
- + (f'<td class="ovr" title="model ${r["ovr"]} (your my_price override)">${r["pred"]}</td>'
-    if r["ovr"] is not None else f'<td>${r["pred"]}</td>')
+ f'<td>${r["pred"]}</td>'
  + f'<td>{r["pts"]}</td><td>{r["ppd"]}</td>'
  f'<td>{r["last"] if r["last"] is not None else ""}</td>'
  f'<td>{r["lastrk"] if r["lastrk"] is not None else ""}</td>'

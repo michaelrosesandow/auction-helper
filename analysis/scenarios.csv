@@ -1,0 +1,19 @@
+# scenarios.csv — WHAT-IF price levers, applied at the OPTIMIZER (03_optimize.py
+# / the live TS solver), NOT baked into the canonical table (assemble.py ignores
+# this file). Optional; blank lines & '#' comments are ignored.
+#
+# Format:  name, position, my_price, note
+#   my_price = what you expect to pay. The optimizer uses this in place of the
+#              model cost for that player, so you can stress-test "what if
+#              Baker really goes $12". The model cost stays in players.json as
+#              `cost` (this is a scenario overlay, not a correction).
+#
+# This is the new home for the my_price column retired from my_rankings.csv.
+# (my_rank and the rank-gap `ceiling=up/down` heuristic are RETIRED — ceiling
+#  shape now comes from the tier profile via rubric.py, and personal ranks are
+#  expressed by editing data/tiers/*.yml.)
+#
+# NOTE: not yet wired into the optimizer — wiring (read this CSV, override cost
+# for matches) is a small follow-up. Listed here so the what-if isn't lost.
+name,position,my_price,note
+Daniel Jones,QB,10,yr3; price should rise w/ preseason clarity

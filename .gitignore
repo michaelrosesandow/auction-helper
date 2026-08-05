@@ -18,6 +18,6 @@ build/
 analysis/_nfl/
 analysis/my_rankings.csv
 analysis/*.bak
-analysis/__pycache__/
+__pycache__/
 analysis/out/
 analysis/review.html

@@ -696,7 +696,10 @@ function liveQbStratHtml(s: DraftState, players: readonly Player[]): string {
   if (!me) {
     return "";
   }
-  const res = optimizeRoster({ players: optPoolFromRankings(s, players), budget: me.budgetRemaining });
+  const res = optimizeRoster({
+    players: optPoolFromRankings(s, players),
+    budget: me.budgetRemaining,
+  });
   const head = `<div class="qs-head muted">QB strategy — your $${me.budgetRemaining}, backup QB ~$${res.backupQbAllowance}</div>`;
   if (!res.best || res.topPairs.length === 0) {
     return `<div class="qbstrat">${head}<div class="muted">${escapeHtml(res.note ?? "No solution.")}</div></div>`;

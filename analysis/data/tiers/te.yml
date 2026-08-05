@@ -1,0 +1,245 @@
+# data/tiers/te.yml — TE tier assessment.
+#
+# THIS IS THE RECURRING HUMAN INPUT. Re-author it when a new Gretch article
+# drops. It is the only place tier judgements live; assemble.py joins it onto
+# the stat projections (out/players.json) to build the canonical table.
+#
+# Source: "TE Targets and Fades — How to play the tiers" (Ben Gretch, Stealing
+# Signals, 2026-08-04). Full article transcribed -- tiers, ordering, and the
+# bold/italic (target/fade) flags come straight from the ranked lists, parsed
+# by extract_targets.py off the saved HTML. The one human-judgment axis is
+# `profile` (band shape), derived from the prose and mapped to rubric.py.
+#
+# Rules honored (TODO "Design principles"):
+#   - target/fade are transcribed straight from the article's bold/italics --
+#     NO judgment calls. Parsed verbatim via extract_targets.py. Notable: the
+#     whole tier 1 (1a+1b) AND Fannin are Targets; the ONLY fades are Andrews,
+#     Kincaid, and Goedert. Tier 3 (LaPorta/Kraft/Pitts/Kelce/Kittle) and all
+#     of tier 5 carry NO flag -- the article leaves both unformatted, and the
+#     prose explicitly says tier 3 is "not denoted as Fades."
+#   - The median (stat projection) is never moved; profiles only shape the
+#     band. floor = pts*floor_frac, ceiling = pts*ceil_frac (rubric.py).
+#   - big_break_after lives on the 1b entry (Warren); the engine folds it onto
+#     integer tier 1, so the cliff reads "after tier 1." dead_zone marks the
+#     20-man tier 4 ("Great or Late" blob Gretch likens to the RB Dead Zone).
+#   - Injury-return TEs (LaPorta/Kraft/Kittle) express risk via the LEFT TAIL
+#     of the band profile, not a crushed floor -- no double-discounting.
+#   - Sub-tiers (1a/1b) encode as tier + subtier; they do NOT split the tier
+#     for cliff logic (1a+1b = tier 1).
+position: TE
+source: "Ben Gretch TE Tiers (Stealing Signals, 2026-08-04)"
+tiers:
+  # ── Tier 1: the "Greats" -- all four targets ───────────────────────────────
+  - tier: 1
+    subtier: 1 # 1a
+    players:
+      - {
+          name: Brock Bowers,
+          profile: compressed-elite,
+          target: true,
+          note: "clear TE1; higher aDOT/efficiency than McBride; routes consolidator",
+        }
+      - {
+          name: Trey McBride,
+          profile: compressed-elite,
+          target: true,
+          note: "superstar; market over-regressing '25; ceiling may not repeat but floor is high",
+        }
+      - {
+          name: Colston Loveland,
+          profile: compressed-elite,
+          target: true,
+          note: "extremely high floor + ceiling as clear No.1 in concentrated Bears O; youth the only caveat",
+        }
+  - tier: 1
+    subtier: 2 # 1b
+    big_break_after: true # cliff drops after tier 1 (after Warren)
+    players:
+      - {
+          name: Tyler Warren,
+          profile: clean-symmetric,
+          target: true,
+          note: "reliable Year-2 bet; lower aDOT = less ceiling than the 1a three; the fallback before the cliff",
+        }
+
+  # ── Tier 2: Fannin alone, behind the Big Tier Break ─────────────────────────
+  - tier: 2
+    players:
+      - {
+          name: Harold Fannin,
+          profile: efficiency-fade,
+          target: true,
+          note: "one clean bet behind the break; routes consolidator but league-worst QB caps efficiency/ceiling",
+        }
+
+  # ── Tier 3: the injury-return + name-value guys -- NONE faded (per article) ─
+  - tier: 3
+    players:
+      - {
+          name: Sam LaPorta,
+          profile: clean-symmetric,
+          note: "the one he'd move up; pure floor sense but reinjury (disc) is the swing; Lions concentration helps",
+        }
+      - {
+          name: Tucker Kraft,
+          profile: efficiency-fade,
+          note: "low-aDOT/YAC-dependent; '25 spike unsustainable; needs health + role change + WR slippage",
+        }
+      - {
+          name: Kyle Pitts,
+          profile: upside-swing,
+          note: "pure late-bloomer upside bet; low floor but unlocks-potential case",
+        }
+      - {
+          name: Travis Kelce,
+          profile: veteran-floor,
+          note: "a play on routes in a thin KC pass game; age-capped ceiling",
+        }
+      - {
+          name: George Kittle,
+          profile: efficiency-fade,
+          note: "Achilles in Jan; efficiency rebound is the concern, though thinned 49ers corps could funnel targets",
+        }
+
+  # ── Tier 4: the Dead Zone -- "Great or Late"; values are further down ───────
+  - tier: 4
+    dead_zone: true
+    players:
+      - {
+          name: Jake Ferguson,
+          profile: veteran-floor,
+          note: "routes-dependent floor play in a good offense",
+        }
+      - {
+          name: Isaiah Likely,
+          profile: efficiency-fade,
+          note: "NOT faded in list despite 'hate his ADP' prose; probably won't get routes",
+        }
+      - {
+          name: Mark Andrews,
+          profile: efficiency-fade,
+          fade: true,
+          note: "routes-limited + per-route decline",
+        }
+      - {
+          name: Dalton Kincaid,
+          profile: efficiency-fade,
+          fade: true,
+          note: "terrible bet; routes-limited + knee management",
+        }
+      - {
+          name: Oronde Gadsden,
+          profile: upside-swing,
+          target: true,
+          note: "cheap Year-2 upside in a good offense; odd how low he's gotten",
+        }
+      - {
+          name: Kenyon Sadiq,
+          profile: upside-swing,
+          target: true,
+          note: "cheap freak-athlete rookie; low floor, high ceiling",
+        }
+      - {
+          name: Chig Okonkwo,
+          profile: clean-symmetric,
+          target: true,
+          note: "routes consolidator; could be WAS No.2 target-earner",
+        }
+      - {
+          name: Juwan Johnson,
+          profile: clean-symmetric,
+          target: true,
+          note: "526 routes last yr; incumbent role; TD-regression upside; mispriced",
+        }
+      - {
+          name: T.J. Hockenson,
+          profile: efficiency-fade,
+          note: "projection too hot; declining; would drop him further",
+        }
+      - {
+          name: Hunter Henry,
+          profile: veteran-floor,
+          note: "less-exciting routes floor in that price tier",
+        }
+      - {
+          name: Brenton Strange,
+          profile: efficiency-fade,
+          note: "as squeezed for targets as a TE can be behind the WR corps",
+        }
+      - {
+          name: Dallas Goedert,
+          profile: efficiency-fade,
+          fade: true,
+          note: "routes-limited + declining per-route; take Andrews over him",
+        }
+      - {
+          name: Pat Freiermuth,
+          profile: veteran-floor,
+          target: true,
+          note: "cheap uninspiring-veteran routes play",
+        }
+      - {
+          name: Terrance Ferguson,
+          profile: upside-swing,
+          target: true,
+          note: "dynamic; could play WR roles and consolidate routes if Davante slips",
+        }
+      - {
+          name: Dalton Schultz,
+          profile: veteran-floor,
+          note: "cheap uninspiring-veteran routes play",
+        }
+      - { name: Cade Otton, profile: veteran-floor, note: "cheap uninspiring-veteran routes play" }
+      - {
+          name: Gunnar Helm,
+          profile: upside-swing,
+          note: "passing game could open up; projection-based upside",
+        }
+      - {
+          name: Eli Stowers,
+          profile: upside-swing,
+          target: true,
+          note: "freak athlete; discounted for blocking -- faders better be right",
+        }
+      - {
+          name: Greg Dulcich,
+          profile: efficiency-fade,
+          note: "fun in theory but not a passing game to invest in",
+        }
+      - {
+          name: AJ Barner,
+          profile: boom-bust,
+          note: "won't consolidate routes but could score enough TDs",
+        }
+
+  # ── Tier 5: rotational; Gretch declines to write up individually ────────────
+  # Profiles here are ARCHETYPE-INFERRED (not prose-derived): established names
+  # get veteran-floor (boring routes floor), neutral comps get clean-symmetric,
+  # young/athlete bets get upside-swing. No targets/fades -- the list is
+  # unformatted. Re-author only if Gretch writes these up.
+  - tier: 5
+    players:
+      - { name: Evan Engram, profile: veteran-floor }
+      - { name: Mike Gesicki, profile: veteran-floor }
+      - { name: Darnell Washington, profile: clean-symmetric }
+      - { name: Theo Johnson, profile: upside-swing }
+      - { name: Eli Raridon, profile: upside-swing }
+      - { name: Colby Parkinson, profile: clean-symmetric }
+      - { name: "Ja'Tavion Sanders", profile: upside-swing }
+      - { name: Mason Taylor, profile: upside-swing }
+      - { name: Cole Kmet, profile: veteran-floor }
+      - { name: Justin Joly, profile: upside-swing }
+      - { name: David Njoku, profile: veteran-floor }
+      - { name: Erick All, profile: upside-swing }
+      - {
+          name: Tanner Koziol,
+          profile: upside-swing,
+          note: "the one stud he calls out; path blocked by Strange + WR depth but bet on studs",
+        }
+      - { name: Jake Tonges, profile: clean-symmetric }
+      - { name: Elijah Arroyo, profile: upside-swing }
+      - { name: Michael Mayer, profile: clean-symmetric }
+      - { name: Dawson Knox, profile: veteran-floor }
+      - { name: Charlie Kolar, profile: clean-symmetric }
+      - { name: Seydou Traore, profile: upside-swing }
+      - { name: Matthew Hibner, profile: clean-symmetric }

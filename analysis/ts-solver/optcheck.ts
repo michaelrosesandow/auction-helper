@@ -1,3 +1,4 @@
+import { optimizeRoster, type OptPlayer } from "../../src/engine/optimize.js";
 /**
  * End-to-end sanity check: run the live optimizer (src/engine/optimize.ts)
  * against the analysis players.json and confirm it matches the Python
@@ -8,7 +9,6 @@
  *     --platform=node --outfile=/tmp/optcheck.mjs && node /tmp/optcheck.mjs
  */
 import playersRaw from "../out/players.json";
-import { optimizeRoster, type OptPlayer } from "../../src/engine/optimize.js";
 
 interface RawPlayer {
   name?: string;
@@ -44,7 +44,10 @@ for (const [label, backup] of [
           ? `-$${-o.priceSwing} to tie`
           : "";
     console.log(
-      `  ${o.qbs.map((q) => q.name).join(" + ").padEnd(28)} $${String(o.qbCost).padStart(3)}  ` +
+      `  ${o.qbs
+        .map((q) => q.name)
+        .join(" + ")
+        .padEnd(28)} $${String(o.qbCost).padStart(3)}  ` +
         `${o.totalPts.toFixed(0)}pts  Δ${o.gapToBest.toFixed(0).padStart(3)}  ${sw}`,
     );
   }

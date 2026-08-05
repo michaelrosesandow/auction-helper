@@ -50,3 +50,39 @@ describe("importRankings", () => {
     expect(wrTier?.playerIds.length).toBe(2);
   });
 });
+
+describe("importRankings — distribution & structural flags (T1)", () => {
+  // Subtier is a player attribute; BigBreak/DeadZone are tier-level, repeated
+  // per row and folded into the (pos, tier) bucket. Tier 1 RBs carry a
+  // BigBreak; the tier-2 RB is a Dead Zone. Subtiers 1/2 split tier 1 into
+  // 1a/1b.
+  const FLAG_CSV = `Player Name,Position,Tier,Subtier,BigBreak,DeadZone,Median,Target,Fade
+A,RB,1,1,1,,100,1,
+B,RB,1,1,1,,95,,
+C,RB,1,2,1,,90,,
+D,RB,2,,,1,50,,1`;
+
+  const res = importRankings(FLAG_CSV);
+
+  it("carries subtier on the player", () => {
+    expect(res.players.find((p) => p.name === "A")?.subtier).toBe(1);
+    expect(res.players.find((p) => p.name === "C")?.subtier).toBe(2);
+    expect(res.players.find((p) => p.name === "D")?.subtier).toBeUndefined();
+  });
+
+  it("folds BigBreak/DeadZone onto the tier (grouped by integer tier)", () => {
+    const rbTiers = res.tiers.filter((t) => t.pos === "RB");
+    const t1 = rbTiers[0]; // sorted: tier 1 before tier 2
+    const t2 = rbTiers[1];
+    expect(t1?.bigBreakAfter).toBe(true);
+    expect(t1?.deadZone).toBeUndefined();
+    expect(t2?.deadZone).toBe(true);
+    expect(t2?.bigBreakAfter).toBeUndefined();
+  });
+
+  it("does not split sub-tiers into separate Tier objects", () => {
+    const rbTiers = res.tiers.filter((t) => t.pos === "RB");
+    expect(rbTiers.length).toBe(2); // tier 1 (1a + 1b) + tier 2
+    expect(rbTiers.find((t) => t.tier === 1)?.playerIds.length).toBe(3);
+  });
+});

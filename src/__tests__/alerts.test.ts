@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_TARGET_FADE_DELTA,
   DEFAULT_VALUE_THRESHOLD,
   endgameLeverage,
   maxBidOf,
@@ -305,6 +306,67 @@ describe("valueAlert", () => {
   it("ignores a player with zero market value", () => {
     const free: Player = { ...star, id: "free-qb", name: "Free", marketValue: 0 };
     expect(valueAlert(withNom(free, 1), [free])).toBeNull();
+  });
+});
+
+describe("valueAlert — Target/Fade price-sensitivity (T4)", () => {
+  // Same market value (40) so only the tag differs; adjusted market = 40 at
+  // inflation 1. Neutral ceiling = 0.7*40 = 28.
+  const neutral = player("Neutral", "QB", 40);
+  const target = { ...player("Target", "QB", 40), target: true };
+  const fade = { ...player("Fade", "QB", 40), fade: true };
+
+  it("default delta is 0.1 (10 percentage points)", () => {
+    expect(DEFAULT_TARGET_FADE_DELTA).toBe(0.1);
+  });
+
+  it("a Target flags as value at a smaller discount than a neutral player", () => {
+    // bid 30 = 25% off. Neutral ceiling 28 -> not value; Target ceiling 32 -> value.
+    expect(valueAlert(withNom(neutral, 30), [neutral])?.isValue).toBe(false);
+    const a = valueAlert(withNom(target, 30), [target]);
+    expect(a?.threshold).toBeCloseTo(0.8, 10);
+    expect(a?.valueCeiling).toBeCloseTo(32, 10);
+    expect(a?.isValue).toBe(true);
+  });
+
+  it("a Fade only flags as value at a steep discount", () => {
+    // Fade ceiling 0.6*40 = 24. bid 26 (35% off) still not value; bid 20 (50%) is.
+    expect(valueAlert(withNom(fade, 26), [fade])?.isValue).toBe(false);
+    const a = valueAlert(withNom(fade, 20), [fade]);
+    expect(a?.threshold).toBeCloseTo(0.6, 10);
+    expect(a?.valueCeiling).toBeCloseTo(24, 10);
+    expect(a?.isValue).toBe(true);
+  });
+
+  it("honors a custom targetFadeDelta", () => {
+    // delta 0.2 -> Target threshold 0.9 -> ceiling 36; bid 34 now a value.
+    const a = valueAlert(withNom(target, 34), [target], { targetFadeDelta: 0.2 });
+    expect(a?.threshold).toBeCloseTo(0.9, 10);
+    expect(a?.isValue).toBe(true);
+    // Same bid, default delta 0.1 -> ceiling 32 -> not value.
+    expect(valueAlert(withNom(target, 34), [target])?.isValue).toBe(false);
+  });
+
+  it("clamps the effective threshold to [0, 1]", () => {
+    // Target delta 0.5 -> 1.2 clamped to 1.0 -> ceiling = adjusted (40).
+    const up = valueAlert(withNom(target, 38), [target], { targetFadeDelta: 0.5 });
+    expect(up?.threshold).toBe(1);
+    expect(up?.valueCeiling).toBeCloseTo(40, 10);
+    expect(up?.isValue).toBe(true);
+    // Fade delta 0.9 -> -0.2 clamped to 0 -> ceiling 0 -> never value.
+    const down = valueAlert(withNom(fade, 1), [fade], { targetFadeDelta: 0.9 });
+    expect(down?.threshold).toBe(0);
+    expect(down?.isValue).toBe(false);
+  });
+
+  it("does not move the median projection (threshold-only adjustment)", () => {
+    // The shift changes the ceiling/threshold, never the adjusted market value.
+    const n = valueAlert(withNom(neutral, 10), [neutral]);
+    const t = valueAlert(withNom(target, 10), [target]);
+    const f = valueAlert(withNom(fade, 10), [fade]);
+    expect(n?.adjustedMarketValue).toBe(40);
+    expect(t?.adjustedMarketValue).toBe(40);
+    expect(f?.adjustedMarketValue).toBe(40);
   });
 });
 

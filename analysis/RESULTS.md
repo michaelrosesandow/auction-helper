@@ -8,24 +8,24 @@ Value: Ben Gretch projections, Avant scoring (4-pt pass TD, 0.5 PPR, −1 INT, n
 
 ## Recommended par sheet (drops into `src/par-sheet.ts` DEFAULT_WEIGHTS)
 
-| slot | $ | intent |
-|---|---|---|
-| QB1 | 24 | mid+ QB (Dak tier) — starts |
-| SF  | 19 | mid QB (Kyler tier) — starts |
-| RB1 | 5  | value RB (Montgomery) — RBs repriced DOWN |
-| RB2 | 56 | **elite** (Gibbs/Bijan) |
-| WR1 | 37 | top-8 (Amon-Ra tier) |
-| WR2 | 6  | value (Waddle/McLaurin) |
-| TE  | 18 | TE2–3 (Loveland) |
-| FLEX| 17 | mid RB (Hall) |
-| K   | 1  | — |
-| DST | 1  | — |
-| BN1 | 1  | RB handcuff |
-| BN2 | 1  | RB handcuff |
-| BN3 | 1  | RB depth |
-| BN4 | 7  | **backup QB** (Stroud/Shough) — insurance |
-| BN5 | 6  | upside WR (Moore) |
-| **total** | **200** | |
+| slot      | $       | intent                                    |
+| --------- | ------- | ----------------------------------------- |
+| QB1       | 24      | mid+ QB (Dak tier) — starts               |
+| SF        | 19      | mid QB (Kyler tier) — starts              |
+| RB1       | 5       | value RB (Montgomery) — RBs repriced DOWN |
+| RB2       | 56      | **elite** (Gibbs/Bijan)                   |
+| WR1       | 37      | top-8 (Amon-Ra tier)                      |
+| WR2       | 6       | value (Waddle/McLaurin)                   |
+| TE        | 18      | TE2–3 (Loveland)                          |
+| FLEX      | 17      | mid RB (Hall)                             |
+| K         | 1       | —                                         |
+| DST       | 1       | —                                         |
+| BN1       | 1       | RB handcuff                               |
+| BN2       | 1       | RB handcuff                               |
+| BN3       | 1       | RB depth                                  |
+| BN4       | 7       | **backup QB** (Stroud/Shough) — insurance |
+| BN5       | 6       | upside WR (Moore)                         |
+| **total** | **200** |                                           |
 
 **Every build rosters 3 QBs** (2 start in QB1+SF + 1 backup on the bench) per
 the insurance rule: 2 QBs is too much bye/injury risk unless you pay for 2
@@ -41,11 +41,11 @@ with cheap mid RBs (Montgomery $5, Hall $17) rather than two elites.
 
 ## Strategic conclusions
 
-1. **Pay for one solid starting QB (~$19–24), not two elites.** Recency repriced
+1. **Pay for one solid starting QB (~~$19–24), not two elites.** Recency repriced
    mid-QBs up (Baker $6→$13, Kyler $17→$19), so the "two $6 QBs" steal is gone;
-   the optimum is Dak+Kyler (~$43 total) — one QB1-tier + one mid. Two elites
-   (Allen+Lamar $122) still scores ~125 fewer starter pts. *Median-only; elite
-   ceilings undersold — see caveat.*
+   the optimum is Dak+Kyler (~~$43 total) — one QB1-tier + one mid. Two elites
+   (Allen+Lamar $122) still scores ~125 fewer starter pts. _Median-only; elite
+   ceilings undersold — see caveat._
 2. **RBs are now the values** (repriced DOWN: Bijan $67→$59, Kyren $26→$21, Swift
    $10→$5). Take one elite RB (~$56, Gibbs) + fill RB2/FLEX with cheap mid values
    (Montgomery $5, Hall $17). Gibbs max-bid gap widened to **+$29** (strong BUY).
@@ -67,7 +67,7 @@ Baker Mayfield (QB20/$13/304).
   a season-median undersells. If you weight ceiling, paying for one top-5 QB is
   defensible. Gretch is single-point, so this is a judgment call, not quantified.
 - **1-QB ADP → SF room drift.** Cost is priced by rank against SF history (premium
-  baked in), but your SF room may bid the QB12–24 tier *up* vs their 1-QB ADP rank
+  baked in), but your SF room may bid the QB12–24 tier _up_ vs their 1-QB ADP rank
   (more demand, 2 QBs start). The recency weights already capture the room's
   recent QB-premium behavior, but live 2026 bidding could overshoot it; treat the
   mid-QB $ as a floor still.
@@ -78,6 +78,7 @@ Baker Mayfield (QB20/$13/304).
   ADP and re-run `build_2026.py` → `03_optimize.py`; nothing else changes.
 
 ## Reproduce
+
 ```
 cd analysis
 python3 build_2026.py      # cost (rank→SF price) + value → out/players.json

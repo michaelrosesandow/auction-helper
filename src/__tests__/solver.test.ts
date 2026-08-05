@@ -28,8 +28,14 @@ function bruteSkill(pool: SolverPlayer[], budget: number): number {
     for (const wrs of pairs(wr)) {
       for (const t of te) {
         const used = new Set([rbs[0]?.id, rbs[1]?.id, wrs[0]?.id, wrs[1]?.id, t.id]);
-        const baseCost = (rbs[0]?.cost ?? 0) + (rbs[1]?.cost ?? 0) + (wrs[0]?.cost ?? 0) + (wrs[1]?.cost ?? 0) + t.cost;
-        const basePts = (rbs[0]?.pts ?? 0) + (rbs[1]?.pts ?? 0) + (wrs[0]?.pts ?? 0) + (wrs[1]?.pts ?? 0) + t.pts;
+        const baseCost =
+          (rbs[0]?.cost ?? 0) +
+          (rbs[1]?.cost ?? 0) +
+          (wrs[0]?.cost ?? 0) +
+          (wrs[1]?.cost ?? 0) +
+          t.cost;
+        const basePts =
+          (rbs[0]?.pts ?? 0) + (rbs[1]?.pts ?? 0) + (wrs[0]?.pts ?? 0) + (wrs[1]?.pts ?? 0) + t.pts;
         for (const f of pool) {
           if (used.has(f.id)) {
             continue;

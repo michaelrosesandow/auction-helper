@@ -1,0 +1,311 @@
+# data/tiers/rb.yml — RB tier assessment.
+#
+# THIS IS THE RECURRING HUMAN INPUT. Re-author it when a new Gretch article
+# drops. It is the only place tier judgements live; assemble.py joins it onto
+# the stat projections (out/players.json) to build the canonical table.
+#
+# Source: "RB Targets and Fades — How to play the tiers" (Ben Gretch, Stealing
+# Signals, 2026-08-03). FULL transcribe -- tiers, ordering, and the bold/italic
+# (target/fade) flags come straight from the ranked lists, parsed by
+# extract_targets.py off the saved HTML (ranks 1-91, continuous). The one
+# human-judgment axis is `profile` (band shape), derived from the prose and
+# mapped to rubric.py.
+#
+# Rules honored (TODO "Design principles"):
+#   - target/fade are transcribed straight from the article's bold/italics --
+#     NO judgment calls (parsed verbatim). 23 targets, 13 fades. Notable: the
+#     whole tier 3b efficiency trio (Barkley/Henry/Achane) are Fades; the Dead
+#     Zone (4a) carries four fades (Kyren/Etienne/Javonte/Jacobs) and one
+#     target (Warren); tier 5 is "last chance saloon" with 7 targets.
+#   - The median (stat projection) is never moved; profiles only shape the
+#     band. floor = pts*floor_frac, ceiling = pts*ceil_frac (rubric.py).
+#   - big_break_after on tier 1 (Gibbs alone) -- the article debates moving it
+#     to after Taylor but tiers it after Gibbs. dead_zone on 4a (the article
+#     literally calls it "The RB Dead Zone").
+#   - Fades map to efficiency-fade (the article names 3b "overly dependent on
+#     rushing efficiency Fades"); that profile's fat left tail is the fade
+#     signal. Injury/age risk for non-fades (CMC) stays as upside-swing, not
+#     double-discounted.
+#   - Sub-tiers (3a/3b, 4a/4b, 6a/6b) encode as tier + subtier; they do NOT
+#     split the tier for cliff logic.
+position: RB
+source: "Ben Gretch RB Tiers (Stealing Signals, 2026-08-03)"
+tiers:
+  # ── Tier 1: Gibbs alone, the Big Tier Break drops after him ─────────────────
+  - tier: 1
+    big_break_after: true
+    players:
+      - {
+          name: Jahmyr Gibbs,
+          profile: compressed-elite,
+          target: true,
+          note: "consensus 1.01 worth paying up for; floor is top-5 overall",
+        }
+
+  # ── Tier 2: the elite cluster behind Gibbs ──────────────────────────────────
+  - tier: 2
+    players:
+      - {
+          name: Bijan Robinson,
+          profile: compressed-elite,
+          note: "very high on the floor+ceiling combo; minor OC/QB nits",
+        }
+      - {
+          name: Christian McCaffrey,
+          profile: upside-swing,
+          note: "the singularity; age/health is the only real risk",
+        }
+      - { name: Jonathan Taylor, profile: upside-swing }
+
+  # ── Tier 3a: Hampton the target; decline begins here ────────────────────────
+  - tier: 3
+    subtier: 1 # 3a
+    players:
+      - {
+          name: Omarion Hampton,
+          profile: upside-swing,
+          target: true,
+          note: "Year-2 upside swing; proj far below tier rank -- the divergence is the signal",
+        }
+      - {
+          name: Ashton Jeanty,
+          profile: upside-swing,
+          note: "similar to Hampton but worse offense; at-ADP so not a Target",
+        }
+      - {
+          name: James Cook,
+          profile: clean-symmetric,
+          note: "not a Fade; skepticism on the receiving-bump upside narrative",
+        }
+      - { name: Chase Brown, profile: clean-symmetric }
+      - { name: Kenneth Walker III, profile: upside-swing }
+
+  # ── Tier 3b: the efficiency-fade trio + two upside exceptions ───────────────
+  - tier: 3
+    subtier: 2 # 3b
+    players:
+      - {
+          name: Breece Hall,
+          profile: upside-swing,
+          target: true,
+          note: "receiving should rebound; very good despite low TDs; tail risk from Cards offense",
+        }
+      - {
+          name: Saquon Barkley,
+          profile: efficiency-fade,
+          fade: true,
+          note: "age + lack of receiving upside",
+        }
+      - {
+          name: Jeremiyah Love,
+          profile: upside-swing,
+          note: "Air-Yards upside; offense (ARI last in exp points) caps it",
+        }
+      - {
+          name: Derrick Henry,
+          profile: efficiency-fade,
+          fade: true,
+          note: "age + lack of receiving upside",
+        }
+      - {
+          name: "De'Von Achane",
+          profile: efficiency-fade,
+          fade: true,
+          note: "overly dependent on rushing efficiency; tail risk",
+        }
+
+  # ── Tier 4a: the RB Dead Zone -- mostly avoid; one value target (Warren) ────
+  - tier: 4
+    subtier: 1 # 4a
+    dead_zone: true
+    players:
+      - {
+          name: Bhayshul Tuten,
+          profile: upside-swing,
+          note: "aggressive rank; younger upside profile",
+        }
+      - { name: Cam Skattebo, profile: upside-swing }
+      - { name: Quinshon Judkins, profile: upside-swing }
+      - {
+          name: Kyren Williams,
+          profile: efficiency-fade,
+          fade: true,
+          note: "dead heat with Warren in proj but faded at cost",
+        }
+      - { name: "Travis Etienne Jr.", profile: efficiency-fade, fade: true }
+      - { name: "D'Andre Swift", profile: clean-symmetric }
+      - { name: Javonte Williams, profile: efficiency-fade, fade: true }
+      - { name: TreVeyon Henderson, profile: upside-swing }
+      - { name: David Montgomery, profile: veteran-floor }
+      - { name: Bucky Irving, profile: upside-swing }
+      - {
+          name: Josh Jacobs,
+          profile: efficiency-fade,
+          fade: true,
+          note: "higher floor but clear risk; faded at cost",
+        }
+      - { name: Jadarian Price, profile: upside-swing }
+      - {
+          name: Jaylen Warren,
+          profile: clean-symmetric,
+          target: true,
+          note: "the only Dead-Zone target; great value -- proj ahead of many tier-mates",
+        }
+
+  # ── Tier 4b: three distinct bets ────────────────────────────────────────────
+  - tier: 4
+    subtier: 2 # 4b
+    players:
+      - {
+          name: Jonathon Brooks,
+          profile: boom-bust,
+          note: "potentially generational bet, or a huge mistake",
+        }
+      - { name: RJ Harvey, profile: upside-swing, note: "an enigma" }
+      - {
+          name: Rico Dowdle,
+          profile: upside-swing,
+          note: "screaming value if split leans his way; Team HVT upside",
+        }
+
+  # ── Tier 5: last-chance saloon -- 7 targets, be proactive before the cliff ─
+  - tier: 5
+    players:
+      - {
+          name: "J.K. Dobbins",
+          profile: veteran-floor,
+          target: true,
+          note: "injury-tricky but nice early-season scoring value",
+        }
+      - { name: Tony Pollard, profile: veteran-floor }
+      - { name: Rhamondre Stevenson, profile: veteran-floor }
+      - { name: Chuba Hubbard, profile: efficiency-fade, fade: true }
+      - { name: Kyle Monangai, profile: upside-swing, target: true, note: "nice Year-2 bet" }
+      - { name: Blake Corum, profile: upside-swing }
+      - {
+          name: Rachaad White,
+          profile: veteran-floor,
+          target: true,
+          note: "early snap shares make ADP look silly by Week 3; early-season win",
+        }
+      - {
+          name: Keaton Mitchell,
+          profile: upside-swing,
+          target: true,
+          note: "pure upside bet but more floor than meets the eye",
+        }
+      - {
+          name: Jordan Mason,
+          profile: veteran-floor,
+          target: true,
+          note: "early snap shares; early-season win",
+        }
+      - {
+          name: Jacory Croskey-Merritt,
+          profile: upside-swing,
+          target: true,
+          note: "nice Year-2 bet",
+        }
+      - { name: Kenneth Gainwell, profile: clean-symmetric }
+      - {
+          name: "Chris Rodriguez Jr.",
+          profile: veteran-floor,
+          target: true,
+          note: "early value like White/Mason; play cheaply",
+        }
+      - { name: "Tyrone Tracy Jr.", profile: clean-symmetric }
+
+  # ── Tier 6a: late-round upside; ADP lags these ranks ────────────────────────
+  - tier: 6
+    subtier: 1 # 6a
+    players:
+      - {
+          name: "Aaron Jones Sr.",
+          profile: efficiency-fade,
+          fade: true,
+          note: "peripherals shot; some early points but not meaningful ones",
+        }
+      - { name: Tank Bigsby, profile: upside-swing, target: true }
+      - { name: Dylan Sampson, profile: upside-swing, target: true }
+      - { name: Tyjae Spears, profile: upside-swing }
+      - { name: Emmett Johnson, profile: upside-swing, target: true }
+      - { name: Ray Davis, profile: upside-swing, target: true }
+      - { name: Marshawn Lloyd, profile: upside-swing, target: true }
+      - { name: Demond Claiborne, profile: upside-swing, target: true }
+      - { name: Jaydon Blue, profile: upside-swing, target: true }
+      - { name: Isiah Pacheco, profile: upside-swing }
+      - { name: Jonah Coleman, profile: upside-swing }
+      - { name: "Mike Washington Jr.", profile: upside-swing }
+
+  # ── Tier 6b: deep contingency plays; rookies/2nd-year = upside-swing ────────
+  # Profiles here are ARCHETYPE-INFERRED for the no-signal names (rookies and
+  # 2nd-year backs -> upside-swing; established vets -> veteran-floor; truly
+  # unknown -> clean-symmetric). Targets/fades are verbatim from the article.
+  - tier: 6
+    subtier: 2 # 6b
+    players:
+      - {
+          name: Woody Marks,
+          profile: efficiency-fade,
+          fade: true,
+          note: "role but can't hold off Jawhar Jordan; efficiency concern",
+        }
+      - { name: Tyler Allgeier, profile: efficiency-fade, fade: true }
+      - { name: Zach Charbonnet, profile: efficiency-fade, fade: true }
+      - { name: Alvin Kamara, profile: efficiency-fade, fade: true }
+      - { name: Adam Randall, profile: upside-swing, target: true }
+      - { name: Kaelon Black, profile: upside-swing }
+      - { name: Isaiah Davis, profile: upside-swing }
+      - { name: Braelon Allen, profile: upside-swing }
+      - {
+          name: "Brian Robinson Jr.",
+          profile: veteran-floor,
+          note: "weaker pass-day projection than Marks",
+        }
+      - { name: George Holani, profile: clean-symmetric }
+      - { name: Emanuel Wilson, profile: clean-symmetric }
+      - { name: Sean Tucker, profile: clean-symmetric }
+      - {
+          name: Tahj Brooks,
+          profile: upside-swing,
+          target: true,
+          note: "shot in the dark at maybe the league's most open No.2 role",
+        }
+      - { name: Jaylen Wright, profile: upside-swing }
+      - { name: Justice Hill, profile: veteran-floor }
+      - { name: Emari Demercado, profile: veteran-floor }
+      - { name: Kaytron Allen, profile: upside-swing }
+      - { name: DJ Giddens, profile: upside-swing }
+      - { name: Jordan James, profile: upside-swing }
+      - {
+          name: Trey Benson,
+          profile: upside-swing,
+          target: true,
+          note: "interesting if roster changes or stays healthy",
+        }
+      - { name: Nicholas Singleton, profile: upside-swing }
+      - { name: Kimani Vidal, profile: upside-swing }
+      - { name: Seth McGowan, profile: upside-swing }
+      - { name: Ollie Gordon, profile: upside-swing }
+      - {
+          name: Malik Davis,
+          profile: upside-swing,
+          target: true,
+          note: "thrives if Blue stumbles in a less-open No.2 battle",
+        }
+      - { name: Jawhar Jordan, profile: upside-swing }
+      - { name: Trevor Etienne, profile: upside-swing }
+      - { name: Raheim Sanders, profile: upside-swing }
+      - { name: Jarquez Hunter, profile: upside-swing }
+      - { name: Devin Neal, profile: upside-swing }
+      - { name: Devin Singletary, profile: veteran-floor }
+      - { name: Samaje Perine, profile: veteran-floor }
+      - {
+          name: Kendre Miller,
+          profile: upside-swing,
+          target: true,
+          note: "interesting if healthy + decent preseason",
+        }
+      - { name: Will Shipley, profile: clean-symmetric }
+      - { name: Roschon Johnson, profile: veteran-floor }
+      - { name: Isaac Guerendo, profile: upside-swing }

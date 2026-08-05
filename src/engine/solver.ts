@@ -170,7 +170,12 @@ function byPtsDesc(a: SolverPlayer, b: SolverPlayer): number {
   return b.pts - a.pts;
 }
 
-function flexPlayer(fpos: SkillPos, rbs: SolverPlayer[], wrs: SolverPlayer[], tes: SolverPlayer[]): SolverPlayer {
+function flexPlayer(
+  fpos: SkillPos,
+  rbs: SolverPlayer[],
+  wrs: SolverPlayer[],
+  tes: SolverPlayer[],
+): SolverPlayer {
   if (fpos === "RB") {
     return nth(rbs, 2);
   }
@@ -225,7 +230,13 @@ export function optSkill(fronts: Fronts, budget: number): RosterResult {
   return {
     pts: bestPts,
     cost: bestCost,
-    slots: { RB1: nth(rbs, 0), RB2: nth(rbs, 1), WR1: nth(wrs, 0), WR2: nth(wrs, 1), TE: nth(tes, 0), FLEX: flexPlayer(best.fpos, rbs, wrs, tes) },
+    slots: {
+      RB1: nth(rbs, 0),
+      RB2: nth(rbs, 1),
+      WR1: nth(wrs, 0),
+      WR2: nth(wrs, 1),
+      TE: nth(tes, 0),
+      FLEX: flexPlayer(best.fpos, rbs, wrs, tes),
+    },
   };
 }
-

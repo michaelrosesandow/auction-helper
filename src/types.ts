@@ -76,6 +76,10 @@ export interface Player {
   overallRank?: number;
   // tier index within position (1 = top tier)
   tier: number;
+  // sub-tier within a tier (1 = "3a", 2 = "3b"…). A near-equal-cluster
+  // mark Gretch uses for mini-breaks. Display/landscape only — does NOT split
+  // the tier: cliff logic keys on the integer `tier`, so 3a + 3b = tier 3.
+  subtier?: number;
 
   // Manual tags.
   target?: boolean;
@@ -88,6 +92,12 @@ export interface Tier {
   tier: number;
   label?: string;
   playerIds: string[];
+  // Structural cliff: value falls off hard AFTER this tier — secure a
+  // starter here or punt the position. (Gretch's "Big Tier Break".)
+  bigBreakAfter?: boolean;
+  // This tier is the worst place to pay for floor — it follows a Big Break.
+  // (Gretch's "Dead Zone".)
+  deadZone?: boolean;
 }
 
 // ── PRE-DRAFT DATA: the Par Sheet (Drew Davenport) ─────────────────────────

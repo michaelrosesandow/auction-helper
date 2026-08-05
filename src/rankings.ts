@@ -18,13 +18,16 @@ type Field =
   | "team"
   | "bye"
   | "tier"
+  | "subtier"
   | "market"
   | "floor"
   | "median"
   | "ceiling"
   | "target"
   | "fade"
-  | "notes";
+  | "notes"
+  | "bigBreak"
+  | "deadZone";
 
 const ALIASES: Record<Field, string[]> = {
   name: ["playername", "name", "player"],
@@ -32,6 +35,7 @@ const ALIASES: Record<Field, string[]> = {
   team: ["team", "tm", "club", "nflteam"],
   bye: ["bye", "byeweek"],
   tier: ["tier", "t"],
+  subtier: ["subtier", "st"],
   market: ["marketvalue", "market", "value", "price", "cost", "adj", "avg"],
   floor: ["floor", "low"],
   median: ["median", "points", "proj", "projection", "projectedpoints", "pts", "fp"],
@@ -39,6 +43,8 @@ const ALIASES: Record<Field, string[]> = {
   target: ["target", "tgt", "buy"],
   fade: ["fade", "avoid", "sell"],
   notes: ["notes", "note", "comment"],
+  bigBreak: ["bigbreak", "bigbreakafter", "cliff"],
+  deadZone: ["deadzone", "dz"],
 };
 
 export function slugify(input: string): string {
@@ -151,6 +157,45 @@ function parsePos(v: string | undefined): Position | undefined {
   return (POSITIONS as readonly string[]).includes(n) ? (n as Position) : undefined;
 }
 
+// Structural flags folded up from per-row CSV columns into a per-(pos,tier)
+// bucket. bigBreakAfter = cliff drops after this tier; deadZone = the tier
+// following a Big Break (worst place to pay for floor). See TODO T1/T2.
+interface TierFlags {
+  bigBreakAfter: boolean;
+  deadZone: boolean;
+}
+
+// Fold a single row's tier-level flags into the bucket (any row marking the
+// tier wins). A flat CSV repeats these per player row; the YAML assembly
+// (T2) is the precise source for sub-tier-level flags.
+function foldTierFlags(
+  map: Map<string, TierFlags>,
+  pos: Position,
+  tier: number,
+  bigBreakAfter: boolean,
+  deadZone: boolean,
+): void {
+  const key = `${pos}:${tier}`;
+  let f = map.get(key);
+  if (!f) {
+    f = { bigBreakAfter: false, deadZone: false };
+    map.set(key, f);
+  }
+  f.bigBreakAfter ||= bigBreakAfter;
+  f.deadZone ||= deadZone;
+}
+
+// Apply folded flags onto a Tier, but only when true — an unflagged tier keeps
+// the fields absent so it reads as "no structural claim".
+function applyTierFlags(t: Tier, f?: TierFlags): void {
+  if (f?.bigBreakAfter) {
+    t.bigBreakAfter = true;
+  }
+  if (f?.deadZone) {
+    t.deadZone = true;
+  }
+}
+
 export function importRankings(csv: string): ImportResult {
   const errors: string[] = [];
   const rows = parseCsv(csv);
@@ -163,6 +208,8 @@ export function importRankings(csv: string): ImportResult {
   }
 
   const players: Player[] = [];
+  // Per-(pos,tier) structural flags, OR'd from any row that marks the tier.
+  const tierFlags = new Map<string, TierFlags>();
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r];
     if (row === undefined) {
@@ -179,6 +226,17 @@ export function importRankings(csv: string): ImportResult {
       continue;
     }
     const median = parseNumber(cell(row, cols.median)) ?? 0;
+    const tier = parseNumber(cell(row, cols.tier)) ?? 1;
+    // Tier-level flags repeat on each row of a tier in a flat CSV; fold any
+    // row that marks the tier into the per-(pos,tier) bucket. The YAML
+    // assembly (T2) is the precise source for sub-tier-level flags.
+    foldTierFlags(
+      tierFlags,
+      pos,
+      tier,
+      parseBool(cell(row, cols.bigBreak)),
+      parseBool(cell(row, cols.deadZone)),
+    );
     players.push({
       id: slugify(`${name}-${pos}`),
       name,
@@ -190,7 +248,8 @@ export function importRankings(csv: string): ImportResult {
       projCeiling: parseNumber(cell(row, cols.ceiling)),
       marketValue: parseNumber(cell(row, cols.market)) ?? 0,
       positionRank: 0,
-      tier: parseNumber(cell(row, cols.tier)) ?? 1,
+      tier,
+      subtier: parseNumber(cell(row, cols.subtier)),
       target: parseBool(cell(row, cols.target)),
       fade: parseBool(cell(row, cols.fade)),
       notes: cell(row, cols.notes),
@@ -210,7 +269,10 @@ export function importRankings(csv: string): ImportResult {
       });
   }
 
-  // Group tiers by (position, tier).
+  // Group tiers by (position, tier). Sub-tiers deliberately stay a
+  // player-level attribute (`subtier`) — they are NOT split into separate
+  // Tier objects, so cliff logic (which keys on the integer `tier`) keeps
+  // treating 3a + 3b as one tier.
   const tierMap = new Map<string, Tier>();
   for (const p of players) {
     const key = `${p.pos}:${p.tier}`;
@@ -221,7 +283,14 @@ export function importRankings(csv: string): ImportResult {
       tierMap.set(key, { pos: p.pos, tier: p.tier, playerIds: [p.id] });
     }
   }
-  const tiers = [...tierMap.values()].sort((a, b) => a.pos.localeCompare(b.pos) || a.tier - b.tier);
+  const tiers = [...tierMap.values()]
+    .map((t) => {
+      // Only set the flags when true; leave them absent otherwise so an
+      // unflagged tier reads as "no structural claim".
+      applyTierFlags(t, tierFlags.get(`${t.pos}:${t.tier}`));
+      return t;
+    })
+    .sort((a, b) => a.pos.localeCompare(b.pos) || a.tier - b.tier);
 
   return { players, tiers, errors };
 }

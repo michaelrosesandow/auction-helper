@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { nominationSuggest } from "../engine/alerts.js";
-import type { DraftState, Player, Position, TeamState } from "../types.js";
+import { DEFAULT_MIN_FADE_DISCOUNT, nominationSuggest } from "../engine/alerts.js";
+import type { DraftState, Nomination, Player, Position, TeamState } from "../types.js";
 
 const ALL_STARTERS: Position[] = ["QB", "RB", "RB", "WR", "WR", "TE", "K", "DEF"];
 
@@ -160,6 +160,73 @@ describe("nominationSuggest — cold-market snipe", () => {
     const s = nominationSuggest(state([meNeedingTe, rivalNeeding("r1", "QB")]), [te]);
     expect(s.coldMarket.map((c) => c.name)).toContain("Solid TE");
     expect(s.coldMarket[0]?.reason).toMatch(/You need a TE/);
+  });
+});
+
+describe("nominationSuggest — Fade handling (T4)", () => {
+  // I still need a TE (floor unmet); the only TE left is a fade. Fades are
+  // excluded from ACQUIRE (cold-market) but stay eligible for DRAIN
+  // (poison-pill), per Gretch: a fade you don't want is an ideal poison-pill.
+  function needTe(): TeamState {
+    return {
+      ...meSolid(),
+      roster: ALL_STARTERS.filter((p) => p !== "TE").map((p, i) => entry(p, `me-${p}-${i}`)),
+    };
+  }
+  function bidding(teams: TeamState[], nominee: Player, currentBid: number): DraftState {
+    const nomination: Nomination = {
+      playerId: nominee.id,
+      name: nominee.name,
+      pos: nominee.pos,
+      currentBid,
+    };
+    return { ...state(teams), phase: "BIDDING", nomination };
+  }
+
+  it("default minFadeDiscount is 0.4", () => {
+    expect(DEFAULT_MIN_FADE_DISCOUNT).toBe(0.4);
+  });
+
+  it("excludes a Fade from cold-market acquire even when it's a must-fill", () => {
+    const fadeTe = player("Fade TE", "TE", 12, { fade: true });
+    const s = nominationSuggest(state([needTe(), rivalNeeding("r1", "QB")]), [fadeTe]);
+    expect(s.coldMarket).toEqual([]);
+  });
+
+  it("still suggests a Fade as a poison-pill (drain, not acquire)", () => {
+    const fadeQb = player("Fade QB", "QB", 60, { fade: true });
+    const s = nominationSuggest(
+      state([meSolid(), rivalNeeding("r1", "QB"), rivalNeeding("r2", "QB")]),
+      [fadeQb],
+    );
+    expect(s.poisonPill.map((c) => c.name)).toContain("Fade QB");
+    expect(s.coldMarket.map((c) => c.name)).not.toContain("Fade QB");
+  });
+
+  it("admits a Fade to cold-market when the live discount is deep", () => {
+    const fadeTe = player("Fade TE", "TE", 12, { fade: true });
+    // bid 5 vs adjusted 12 -> discount 7/12 ≈ 0.58 ≥ 0.4.
+    const s = nominationSuggest(bidding([needTe(), rivalNeeding("r1", "QB")], fadeTe, 5), [fadeTe]);
+    expect(s.coldMarket.map((c) => c.name)).toContain("Fade TE");
+    expect(s.coldMarket[0]?.reason).toMatch(/deep discount overrides the fade tag/);
+  });
+
+  it("keeps a Fade out of cold-market when the live discount is shallow", () => {
+    const fadeTe = player("Fade TE", "TE", 12, { fade: true });
+    // bid 9 vs adjusted 12 -> discount 0.25 < 0.4 -> excluded.
+    const s = nominationSuggest(bidding([needTe(), rivalNeeding("r1", "QB")], fadeTe, 9), [fadeTe]);
+    expect(s.coldMarket).toEqual([]);
+  });
+
+  it("honors a custom minFadeDiscount", () => {
+    const fadeTe = player("Fade TE", "TE", 12, { fade: true });
+    // discount 0.25; default 0.4 excludes it, but 0.2 admits it.
+    const s = nominationSuggest(
+      bidding([needTe(), rivalNeeding("r1", "QB")], fadeTe, 9),
+      [fadeTe],
+      { minFadeDiscount: 0.2 },
+    );
+    expect(s.coldMarket.map((c) => c.name)).toContain("Fade TE");
   });
 });
 
