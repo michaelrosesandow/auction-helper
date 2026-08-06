@@ -262,7 +262,9 @@ qbCost`). Ranks by `qbPts + skill.pts`. Each `QBOption` carries `gapToBest`
   OPTIMAL = **2036 starter + ~190 bench-value = 2225 obj**. (**RESOLVED:**
   `assemble.py` now populates `floor`/`ceiling` from tier profiles via
   `rubric.py` — they are no longer blank; TODO T3 wires a ceiling-tilted
-  objective on top of them.)
+  objective on top of them. **DONE:** `optimize.blendPts` (role-weighted
+  ceiling/floor blend + acquire Fade discount) now feeds the optimizer pool
+  via `optPoolFromRankings`; solver stays pure.)
 - **Verified ranks:** the 2026 ADP-only ranks in the historical file exactly
   match the real FantasyPros 2026 ADP ordering (Stroud really is ~QB23 across
   Yahoo/Sleeper/RTSports). So cheap-mid-QB values are real consensus, not noise.
@@ -401,7 +403,10 @@ that excludes him (the pivot); above it, pivot. Two columns:
 4. **Ceiling-tilted variant** — force one top-5 QB, re-optimize, quantify the
    starter-pts cost; produces a Plan B par sheet. **Now UNBLOCKED** — TODO T2
    landed real floor/ceiling data (`assemble.py` + `rubric.py`); this becomes
-   TODO T3 (role-weighted blended objective). Offered, not done.
+   TODO T3 (role-weighted blended objective). **DONE** — `blendPts` blends
+   floor/median/ceiling by slot role (starter = ceiling-tilt, bench-skill =
+   hard ceiling-tilt, bench-qb = floor-weighted; weights sum to 1.0 so a
+   symmetric player stays at its median), with an acquire-only Fade discount.
 5. Generate the `prices_2026.csv`-style market-value feed the live **value-alerts**
    engine (`src/engine/alerts.ts` `valueAlert`) will consume in-draft.
 6. **Port realization + max-bid into the TS real-time solver.** Apply the

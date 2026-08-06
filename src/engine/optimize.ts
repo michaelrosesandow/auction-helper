@@ -290,13 +290,20 @@ export interface BlendInput {
 export interface BlendPtsOptions {
   /** Acquire discount applied when the player is a Fade. Default 0.9 (−10%). */
   fadeDiscount?: number;
+  /** Weight on the ceiling term (the starter ceiling-tilt). Default 0.3. The
+   *  median term is `1 − ceilingTilt`, so the weights always sum to 1.0 and a
+   *  symmetric player (ceiling = median) blends to its median at any tilt.
+   *  Exposed for the V2 weight sweep + V3 calibration (TODO.md): running the
+   *  optimizer across tilt 0.2 → 0.4 measures how often the selected roster
+   *  changes, telling you whether 0.3 is sharper than the data justifies. */
+  ceilingTilt?: number;
 }
 
-// Calibration: defensible starting point (weights sum to 1.0). Retune here and
-// every blend updates. See TODO.md (V2–V3) + analysis/rubric.py for the band
-// shapes that feed the ceiling.
-const BLEND_MEDIAN = 0.7;
-const BLEND_CEILING = 0.3;
+// Default calibration: defensible starting point. The median weight is
+// 1 − ceilingTilt so weights always sum to 1.0. Retune the tilt via
+// blendPts's ceilingTilt option and every blend updates. See TODO.md
+// (V2–V3) + analysis/rubric.py for the band shapes that feed the ceiling.
+const DEFAULT_CEILING_TILT = 0.3;
 
 // Acquire penalty for a Fade. The optimizer is the acquire path, so a Fade
 // you're forced to consider is worth less than its raw projection. This is the
@@ -307,15 +314,171 @@ const DEFAULT_FADE_DISCOUNT = 0.9;
 
 /**
  * Starter ceiling-tilted projection — replaces the raw median as the
- * optimizer's `pts`. `0.7·median + 0.3·ceiling`, so a symmetric player
- * returns its median, an upside player (ceiling ≫ median) blends above it,
- * and a missing ceiling degrades to the median (median-only data is safe). A
- * Fade is further discounted (acquire only). See the file header for why this
- * is starter-only.
+ * optimizer's `pts`. `(1−tilt)·median + tilt·ceiling` (tilt default 0.3), so a
+ * symmetric player returns its median, an upside player (ceiling ≫ median)
+ * blends above it, and a missing ceiling degrades to the median (median-only
+ * data is safe). A Fade is further discounted (acquire only). See the file
+ * header for why this is starter-only.
  */
 export function blendPts(p: BlendInput, opts: BlendPtsOptions = {}): number {
   const med = p.projMedian;
-  const pts =
-    p.projCeiling === undefined ? med : BLEND_MEDIAN * med + BLEND_CEILING * p.projCeiling;
+  const tilt = opts.ceilingTilt ?? DEFAULT_CEILING_TILT;
+  const pts = p.projCeiling === undefined ? med : (1 - tilt) * med + tilt * p.projCeiling;
   return p.fade ? pts * (opts.fadeDiscount ?? DEFAULT_FADE_DISCOUNT) : pts;
+}
+
+// ── Bench/depth value function (V4) ────────────────────────────────────────
+// The starter-only blendPts is median-dominant (0.3 ceiling tilt) — correct
+// for the starter solver. But depth/bench slots are explicitly chasing upside
+// bets: a $5 Henderson (med181/ceil245) is a better bench asset than a $5
+// Montgomery (med202/ceil212), even though the starter blend prefers
+// Montgomery's higher median. blendPts can't express this without breaking
+// the starter solver (the tilt would need to exceed ~0.45 — V2's knife-edge).
+//
+// benchValue is the depth acquirre path: ceiling-weighted, position-aware,
+// dead-zone-penalized. Wired into valueAlert thresholds, nominationSuggest
+// cold-market sizing, and the review HTML — NOT the solver (it has no bench
+// slots).
+//
+// Position-aware (backed by the V3 role-weighting backtest):
+//   - QB/WR depth: ceiling-weighted (benchTilt ≈ 0.7 — inverts the starter
+//     tilt, because bench isn't about safe floor, it's about breakout upside).
+//   - RB depth:    median-only (RB ceiling is class-noise, not predictive
+//     — the backtest showed year-by-year rookie-class quality dominates,
+//     which is unknowable at draft, so don't chase it).
+//   - TE depth:    ceiling-weighted (follows QB/WR pattern).
+//
+// Dead Zone penalty — the within-tier rule: dead_zone is tier-level (the
+// whole $5 RB neighborhood is flagged), so it can't discriminate Henderson
+// from Montgomery by itself. The bench fn combines it with the ceiling: a
+// player in a Dead Zone tier who ALSO has a capped ceiling (ceiling/median <
+// deadZoneCeilingCap) is multiplied by deadZonePenalty. This drops the
+// veteran floor-back (Montgomery, ratio 1.05) below the upside-bet
+// (Henderson, ratio 1.35) within the same dead-zone tier.
+
+/** Subset of BlendInput + position for bench value. Player satisfies it. */
+export interface BenchValueInput {
+  projMedian: number;
+  projCeiling?: number;
+  fade?: boolean;
+  pos: string;
+}
+
+export interface BenchValueOptions {
+  /** Weight on ceiling for bench QB/WR/TE. Inverts the starter tilt: bench
+   * depth is explicitly chasing upside bets. Default 0.7. */
+  benchCeilingTilt?: number;
+  /** Dead-zone penalty: multiply the value of a capped-ceiling player in a
+   * Dead Zone tier by this factor. Default 0.85 (−15%). Only applied when
+   * the ceiling/median ratio is below {@link deadZoneCeilingCap}. */
+  deadZonePenalty?: number;
+  /** Ceiling/median ratio below which a Dead Zone player is considered
+   * "ceiling-capped" and subject to the dead-zone penalty. Default 1.15
+   * (≤15% above median = no real breakout escape hatch). Only checked when
+   * projCeiling is explicitly sourced — a missing ceiling never triggers the
+   * penalty (we can't call it "capped" if we don't have the data). */
+  deadZoneCeilingCap?: number;
+  /** Acquire discount applied when the player is a Fade. Default 0.9 (−10%).
+   * Same as blendPts's fadeDiscount. */
+  fadeDiscount?: number;
+}
+
+const DEFAULT_BENCH_CEILING_TILT = 0.7;
+const DEFAULT_DEAD_ZONE_PENALTY = 0.85;
+const DEFAULT_DEAD_ZONE_CEILING_CAP = 1.15;
+
+/**
+ * Bench/depth value function — the ceiling-weighted counterpart to
+ * {@link blendPts}. Wired into alerts + review HTML, NOT the solver.
+ *
+ * Callers determine `isDeadZone` from the tier data (`Tier.deadZone` lookup
+ * by player's tier) and pass it in. When no tier data is loaded, passing
+ * `false` across the board degrades to a position-aware blend with no
+ * dead-zone penalty (the pre-V4 behavior).
+ */
+export function benchValue(
+  p: BenchValueInput,
+  isDeadZone: boolean,
+  opts: BenchValueOptions = {},
+): number {
+  const med = p.projMedian;
+  const ceil = p.projCeiling ?? med;
+
+  // Position-aware tilt: QB/WR/TE get ceiling-weighted; RB gets median-only.
+  // But an EXPLICIT benchCeilingTilt overrides the position default — the
+  // caller can force a tilt for RB (useful for experiments / future tuning).
+  const explicitTilt = opts.benchCeilingTilt !== undefined;
+  const isCeilingPos = p.pos === "QB" || p.pos === "WR" || p.pos === "TE";
+  let tilt: number;
+  if (explicitTilt) {
+    tilt = opts.benchCeilingTilt as number;
+  } else if (isCeilingPos) {
+    tilt = DEFAULT_BENCH_CEILING_TILT;
+  } else {
+    tilt = 0;
+  }
+  let value = (1 - tilt) * med + tilt * ceil;
+
+  // Dead Zone penalty: capped-ceiling players in the worst tier.
+  // Only applied when projCeiling is explicitly sourced — a missing ceiling
+  // means we can't call it "capped" (it's just unsourced).
+  if (isDeadZone && p.projCeiling !== undefined && med > 0) {
+    const cap = opts.deadZoneCeilingCap ?? DEFAULT_DEAD_ZONE_CEILING_CAP;
+    if (ceil / med < cap) {
+      value *= opts.deadZonePenalty ?? DEFAULT_DEAD_ZONE_PENALTY;
+    }
+  }
+
+  return p.fade ? value * (opts.fadeDiscount ?? DEFAULT_FADE_DISCOUNT) : value;
+}
+
+// ── Starter attrition retention priors (V4) ───────────────────────────────
+// From analysis/attrition_study.py: role retention = fraction of projection
+// that survives when the player actually plays (availability-adjusted).
+// Elites retain more of their role when injured (they get the snaps back);
+// depth players get replaced. Per-position, per-tier priors.
+
+/** Position-rank-dependent retention prior. Keyed by position; each array is
+ *  [maxRank, retention] — the first entry whose maxRank covers the player's
+ *  positionRank wins. Default covers everyone who didn't match. */
+const RETENTION_PRIORS: Record<string, readonly (readonly [number, number])[]> = {
+  QB: [
+    [16, 0.76],
+    [Number.POSITIVE_INFINITY, 0.5],
+  ],
+  RB: [
+    [6, 0.8],
+    [16, 0.76],
+    [30, 0.71],
+    [Number.POSITIVE_INFINITY, 0.6],
+  ],
+  WR: [
+    [12, 0.77],
+    [Number.POSITIVE_INFINITY, 0.63],
+  ],
+  TE: [
+    [6, 0.73],
+    [Number.POSITIVE_INFINITY, 0.53],
+  ],
+};
+
+/**
+ * Look up the starter attrition retention prior for a player by position and
+ * positionRank. Returns the retention factor (0–1) that should multiply the
+ * blendPts value for starter-acquire purposes. Callers apply it POST-blend:
+ * `blendPts(p) * starterRetention(p.pos, p.positionRank)`.
+ *
+ * K and DEF are not in the attrition study; they return 1.0 (no adjustment).
+ */
+export function starterRetention(pos: string, positionRank: number): number {
+  const brackets = RETENTION_PRIORS[pos];
+  if (!brackets) {
+    return 1;
+  }
+  for (const [maxRank, retention] of brackets) {
+    if (positionRank <= maxRank) {
+      return retention;
+    }
+  }
+  return 1; // unreachable (last bracket is always POSITIVE_INFINITY), but safe
 }

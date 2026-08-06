@@ -10,7 +10,14 @@ import {
   valueAlert,
 } from "./engine/alerts.js";
 import type { NominationCandidate, NominationStrategy } from "./engine/alerts.js";
-import { blendPts, optimizeRoster, type OptPlayer, type QBOption } from "./engine/optimize.js";
+import {
+  benchValue,
+  blendPts,
+  optimizeRoster,
+  starterRetention,
+  type OptPlayer,
+  type QBOption,
+} from "./engine/optimize.js";
 import { isStale, POLL_INTERVAL_MS, type PollPayload } from "./engine/poll.js";
 import {
   DOM_PROBE_KEY,
@@ -66,7 +73,7 @@ const state: PopupState = {
 };
 
 // Board UI state (filter + sort). In-memory only; resets when the panel closes.
-type SortMode = "tier" | "value" | "ceiling" | "rank";
+type SortMode = "tier" | "value" | "ceiling" | "bench" | "rank";
 const POS_ORDER: Record<Position, number> = { QB: 0, RB: 1, WR: 2, TE: 3, K: 4, DEF: 5 };
 let boardFilter: Position | "ALL" = "ALL";
 let boardSort: SortMode = "tier";
@@ -77,6 +84,24 @@ function byId(id: string): HTMLElement {
     throw new Error(`missing element #${id}`);
   }
   return el;
+}
+
+// ── Dead-zone index (V4) ──────────────────────────────────────────────────
+// Tier-level lookup built once per render. `dzIdx.get("${pos}:${tier}")` is
+// truthy when the tier carries a Dead Zone flag (the worst place to pay for
+// floor). benchValue + valueAlert + cold-market ranking all read this.
+function buildDeadZoneIndex(tiers: readonly Tier[]): Map<string, boolean> {
+  const idx = new Map<string, boolean>();
+  for (const t of tiers) {
+    if (t.deadZone) {
+      idx.set(`${t.pos}:${t.tier}`, true);
+    }
+  }
+  return idx;
+}
+
+function isDeadZonePlayer(p: Player, dzIdx: Map<string, boolean>): boolean {
+  return dzIdx.has(`${p.pos}:${p.tier}`);
 }
 
 function escapeHtml(s: string): string {
@@ -189,18 +214,35 @@ const COMPARATORS: Record<SortMode, (a: Player, b: Player) => number> = {
     (b.projCeiling ?? b.projMedian) - (a.projCeiling ?? a.projMedian) ||
     a.positionRank - b.positionRank,
   rank: (a, b) => POS_ORDER[a.pos] - POS_ORDER[b.pos] || a.positionRank - b.positionRank,
+  // Bench sort: highest benchValue/marketValue first (the bench acquire score).
+  // Dead-zone penalty is folded into benchValue, so floor-backs sink in dead zones.
+  // Tie-break by ceiling, then position rank.
+  bench: (a, b) => {
+    const ba = benchValue(a, false);
+    const bb = benchValue(b, false);
+    const sa = a.marketValue > 0 ? ba / a.marketValue : 0;
+    const sb = b.marketValue > 0 ? bb / b.marketValue : 0;
+    return (
+      sb - sa ||
+      (b.projCeiling ?? b.projMedian) - (a.projCeiling ?? a.projMedian) ||
+      a.positionRank - b.positionRank
+    );
+  },
 };
 
-function boardRowHtml(p: Player, sold: Set<string>): string {
+function boardRowHtml(p: Player, sold: Set<string>, dzIdx: Map<string, boolean>): string {
   const cls = sold.has(p.id) ? "sold" : "";
   const star = p.target ? '<span class="tgt" title="target">★</span> ' : "";
   const team = p.team ? escapeHtml(p.team) : "—";
   const ceil = p.projCeiling ?? "—";
+  const bv = benchValue(p, isDeadZonePlayer(p, dzIdx));
+  const benchScore = p.marketValue > 0 ? (bv / p.marketValue).toFixed(1) : "—";
   return `<tr class="${cls}">
         <td><span class="pos-tag pos-${p.pos}">${p.pos}</span>${star}<b>${escapeHtml(p.name)}</b> <small>· ${team}</small></td>
         <td class="num">T${p.tier}</td>
         <td class="num">$${p.marketValue}</td>
         <td class="num">${ceil}</td>
+        <td class="num">${benchScore}</td>
       </tr>`;
 }
 
@@ -216,11 +258,12 @@ function renderBoard(): void {
     return;
   }
   const sold = soldPlayerIds();
+  const dzIdx = buildDeadZoneIndex(rankings.tiers);
   const filtered =
     boardFilter === "ALL"
       ? rankings.players
       : rankings.players.filter((p) => p.pos === boardFilter);
-  const rows = [...filtered].sort(COMPARATORS[boardSort]).map((p) => boardRowHtml(p, sold));
+  const rows = [...filtered].sort(COMPARATORS[boardSort]).map((p) => boardRowHtml(p, sold, dzIdx));
   tbody.innerHTML = rows.join("");
   count.textContent = `${rows.length} shown · ${sold.size} off board`;
 }
@@ -575,9 +618,11 @@ function liveNominationHtml(s: DraftState): string {
   const leader = escapeHtml(liveTeamName(s, n.leadingTeamId ?? ""));
   let value = "";
   const players = state.rankings?.players ?? [];
-  const va = players.length > 0 ? valueAlert(s, players) : null;
+  const tiers = state.rankings?.tiers;
+  const va = players.length > 0 ? valueAlert(s, players, {}, tiers) : null;
   if (va?.isValue) {
-    value = ` <span class="ok">VALUE — fair $${Math.round(va.adjustedMarketValue)}, bid to $${Math.round(va.valueCeiling)}</span>`;
+    const dzNote = va.isDeadZone ? " (dead zone — steep discount req'd)" : "";
+    value = ` <span class="ok">VALUE — fair $${Math.round(va.adjustedMarketValue)}, bid to $${Math.round(va.valueCeiling)}${dzNote}</span>`;
   }
   return `<p><b>${escapeHtml(n.name)}</b> <span class="pos-tag pos-${n.pos}">${n.pos}</span> — <b>$${n.currentBid}</b> (${leader})${timer}${value}</p>`;
 }
@@ -658,15 +703,15 @@ function liveTeamsHtml(s: DraftState): string {
 
 // ── QB strategy (live re-solve) ─────────────────────────────────────────────
 // Maps the loaded rankings into the optimizer's pool: marketValue × inflation
-// → expected price (cost), and a starter ceiling-tilt BLEND → pts. The solver
-// is starter-only by architecture (it optimizes the 6 skill STARTER slots; the
-// bench is $1 leftovers, the backup QB a flat allowance), so there is no bench
-// role to value. The blend degrades to the median for median-only data (current
-// QBs). This is the acquire path, so Fades are discounted inside blendPts.
-// Excludes sold players, then optimizeRoster re-solves the optimal QB starter
-// pair + skill roster against your remaining budget — rendering the top
-// near-equal pairs with a price headroom so the landscape (not one brittle
-// "answer") reacts as QBs sell/get bid up.
+// → expected price (cost), and a starter ceiling-tilt BLEND × attrition
+// RETENTION → pts. The solver is starter-only by architecture (it optimizes
+// the 6 skill STARTER slots; the bench is $1 leftovers, the backup QB a flat
+// allowance), so there is no bench role to value. The blend degrades to the
+// median for median-only data (current QBs). Retention priors penalize players
+// who lose role when injured (e.g. depth RBs retain only 60% vs bellcow 80%)
+// — this systematically favors the Gibbs tier. Fades are discounted inside
+// blendPts. Excludes sold players, then optimizeRoster re-solves the optimal
+// QB starter pair + skill roster against your remaining budget.
 function optPoolFromRankings(s: DraftState, players: readonly Player[]): OptPlayer[] {
   const inflation = Number.isFinite(s.inflation) ? s.inflation : 1;
   const sold = new Set(s.sold.map((row) => row.playerId));
@@ -679,7 +724,9 @@ function optPoolFromRankings(s: DraftState, players: readonly Player[]): OptPlay
       continue;
     }
     const cost = Math.max(1, Math.round(p.marketValue * inflation));
-    out.push({ id: p.id, name: p.name, pos: p.pos, cost, pts: blendPts(p) });
+    const blend = blendPts(p);
+    const retention = starterRetention(p.pos, p.positionRank);
+    out.push({ id: p.id, name: p.name, pos: p.pos, cost, pts: blend * retention });
   }
   return out;
 }
