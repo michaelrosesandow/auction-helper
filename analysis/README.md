@@ -48,6 +48,52 @@ moved by tiers; profiles only shape the band.
   `note`, and tier-level `big_break_after`/`dead_zone`, and run `python3
 assemble.py`.
 
+## Validation
+
+- **`attrition_study.py`** — pulls nflverse `snap_counts` (2018–24); derives
+  per-position ROLE-retention priors (the injury/role haircut on median pts).
+- **`backtest_realization.py`** — V3: joins nflverse realized half-PPR
+  (`player_stats_season_*`, 2021–24) to the league draft history, reconstructs
+  the draft-time median as a leave-one-year-out rank-bin curve, and measures
+  realized (actual/expected) percentiles vs `rubric.py` band fractions + a
+  draft-bucket finish-rate divergence proxy. See `TODO.md` V3 for findings.
+- **`backtest_role_weighting.py`** — V3 (V4 gate): the role-weighting test.
+  Does a bench slot value the high-ceiling/low-floor profile MORE than a
+  starter slot? Joins the league draft history → realized half-PPR → nflverse
+  `players.csv.gz` (for `rookie_season` + `draft_round`), proxies the
+  high-ceiling profile by two independent draft-time axes (experience + draft
+  capital), and measures each cohort across a tail gradient (mean pts →
+  `E[pts·1(top12)]` startable production → `E[pts·1(top6)]` league-winner).
+  Position-aware verdict (see `TODO.md` V4): bench ceiling-tilt is
+  evidence-backed at **QB** (robust, all 4 yrs) and **WR** (stable), but has
+  **no stable signal at RB** (a 2023-artifact reversal), so the V4 bench layer
+  must be position-aware. Run: `python3 analysis/backtest_role_weighting.py`.
+- **`backtest_gretch_signal.py`** — V3 (V4 gate, follow-up): re-cuts the
+  role-weighting test with Gretch's OWN draft-time signal (target/fade + tier
+  rank) parsed from saved tier articles (`~/Downloads/gretch/{2021..2025}/`,
+  instead of the age/draft-capital proxy. 2021 parsed via a custom parser (no
+  target/fade markup — pre-convention); 2025 realized aggregated from the weekly
+  CSV. Three tests: (1) target/fade role-weighting on the same bench pool as the
+  proxy (targets >> none >> fades, uniform incl. RB — resolves the proxy's RB
+  ambiguity); (1b) **target edge by slot** — bench-specific (overperforms in
+  bench, underperforms at elite) → data-motivates the per-slot split; (2) level-
+  controlled tier divergence re-cut against an **independent ADP market** (not
+  this Gretch-influenced room): sleeper side confirmed & stronger under ADP
+  (deep sleepers P50 1.28), but "market-higher-than-Gretch busts" does NOT
+  survive ADP (P50 0.96 — retracted). Note: articles lack the rubric profile
+  tags, so this is target/fade, not the literal profile test.
+  Run: `python3 analysis/backtest_gretch_signal.py`.
+- **`backtest_room_micromarket.py`** — league-specific exploit (a digression from
+  the V4 gate): where does THIS 12-team room deviate from the consensus market
+  (FantasyPros ADP, sourced from `~/Downloads/...Historical ADP - Fantasy Pros
+(2).csv`), and do those deviations win or lose? Finds one stable, 5-year error:
+  the **lone-wolf reach** (room drafts a guy earlier than BOTH consensus ADP and
+  Gretch) underperforms its slot (P50 ~0.85, holds 2021–2025), while room reaches
+  that Gretch _endorses_ win (~1.05, and skew young — converges with the
+  role-weighting youth finding). The marker is "room > market AND room > Gretch,"
+  not veteran/position-specific. Re-runs each August against the new season.
+  Run: `python3 analysis/backtest_room_micromarket.py`.
+
 ## League facts
 
 - 12 teams, $200 each → $2,400 pool (confirmed from history totals).

@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  benchValue,
+  type BenchValueInput,
   blendPts,
   optimizeRoster,
+  starterRetention,
   type BlendInput,
   type BlendPtsOptions,
   type OptPlayer,
@@ -51,6 +54,16 @@ function requireBest(res: { best: QBOption | null }): QBOption {
 // so this stands in for a full Player without the boilerplate.
 function dist(median: number, floor?: number, ceil?: number, fade = false): BlendInput {
   return { projMedian: median, projFloor: floor, projCeiling: ceil, fade };
+}
+
+// Minimal input for benchValue tests — same shape + a pos string.
+function benchDist(
+  median: number,
+  ceil: number | undefined,
+  pos: string,
+  fade = false,
+): BenchValueInput {
+  return { projMedian: median, projCeiling: ceil, pos, fade };
 }
 
 describe("optimizeRoster", () => {
@@ -177,6 +190,105 @@ describe("blendPts", () => {
     expect(blendPts(faded)).toBeLessThan(blendPts(swing));
     expect(blendPts(faded, deep)).toBeCloseTo(230 * 0.8, 6); // 184 — tunable
   });
+
+  // Double-discount guard (TODO V1): the Fade is a SINGLE multiplicative
+  // discount on the WHOLE blend — never entangled with the ceiling term. So
+  // a Fade's blend must equal the identical non-fade blend × fadeDiscount,
+  // for every band shape. A buggy "discount the ceiling term" impl would
+  // under-penalize high-ceiling Fades; a buggy "discount ceiling then whole"
+  // impl would over-penalize them. Asserting the ratio holds across band
+  // shapes (incl. a low ceiling) is what makes this a property test rather
+  // than a spot check — any impl that ties the discount to the ceiling fails
+  // for at least one distribution in the sweep.
+  it("applies the Fade discount exactly once, regardless of ceiling height", () => {
+    const D = 0.9;
+    // Vary the ceiling across band shapes: symmetric, compressed (low),
+    // upside-swing, and a degenerate ceil < median. floor is irrelevant to
+    // the blend (only median + ceiling feed it) but included for realism.
+    const cases: BlendInput[] = [
+      dist(200, 200, 200), // symmetric — blend = median
+      dist(200, 190, 205), // low / compressed ceiling (dead-zone floor-back)
+      dist(200, 150, 300), // upside-swing (ceiling ≫ median)
+      dist(200, 150, 400), // extreme upside
+      dist(200, 120, 180), // degenerate: ceiling BELOW median
+    ];
+    for (const base of cases) {
+      const unfaded = blendPts(base);
+      const faded = blendPts({ ...base, fade: true });
+      // single multiplicative application — the core invariant
+      expect(faded).toBeCloseTo(unfaded * D, 6);
+      // the discount RATE is constant across band shapes: a low-ceiling Fade
+      // gets the same relative haircut as a high-ceiling one. If the discount
+      // leaked into the ceiling term this ratio would vary with the ceiling.
+      expect(faded / unfaded).toBeCloseTo(D, 6);
+    }
+    // a custom discount travels through the same single-application path
+    for (const base of cases) {
+      const unfaded = blendPts(base);
+      expect(blendPts({ ...base, fade: true }, { fadeDiscount: 0.75 })).toBeCloseTo(
+        unfaded * 0.75,
+        6,
+      );
+    }
+  });
+
+  it("a low-ceiling Fade is discounted once, not twice (concrete guard)", () => {
+    // The TODO's specific scenario: a compressed Fade (a dead-zone floor-back
+    // you're forced to consider). blend = 0.7·200 + 0.3·205 = 201.5; the
+    // correct faded value is 201.5 · 0.9. The double-discount bug would score
+    // this as (0.7·med + 0.3·ceil·0.9)·0.9 — strictly lower — and the
+    // ceiling-only bug as 0.7·med + 0.3·ceil·0.9 — strictly higher. Pin the
+    // exact value and bound it on both sides.
+    const low = dist(200, 190, 205, true);
+    const blend = 0.7 * 200 + 0.3 * 205; // 201.5
+    expect(blendPts(low)).toBeCloseTo(blend * 0.9, 6);
+    expect(blendPts(low)).toBeGreaterThan((0.7 * 200 + 0.3 * 205 * 0.9) * 0.9); // not double
+    expect(blendPts(low)).toBeLessThan(0.7 * 200 + 0.3 * 205 * 0.9); // not ceiling-only
+  });
+
+  // ceilingTilt contract (TODO V2): the tilt is now the single knob the weight
+  // sweep + V3 calibration tune, so lock its math — the sweep must measure the
+  // real blend, not a drift. tilt 0 → pure median, tilt 1 → pure ceiling,
+  // monotonic + linear between, default (omitted) == explicit 0.3, and the
+  // weights sum to 1.0 at any tilt (symmetric player → median always).
+  it("ceilingTilt: 0 → pure median, 1 → pure ceiling, linear between", () => {
+    const swing = dist(200, 150, 300); // median 200, ceiling 300
+    expect(blendPts(swing, { ceilingTilt: 0 })).toBeCloseTo(200, 6); // pure median
+    expect(blendPts(swing, { ceilingTilt: 1 })).toBeCloseTo(300, 6); // pure ceiling
+    // monotonic: any interior tilt lands strictly between the endpoints
+    const at = (t: number) => blendPts(swing, { ceilingTilt: t });
+    for (const t of [0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.9]) {
+      expect(at(t)).toBeGreaterThan(at(0));
+      expect(at(t)).toBeLessThan(at(1));
+    }
+    // linear: blend = (1−t)·med + t·ceil
+    expect(blendPts(swing, { ceilingTilt: 0.25 })).toBeCloseTo(0.75 * 200 + 0.25 * 300, 6);
+    expect(blendPts(swing, { ceilingTilt: 0.4 })).toBeCloseTo(0.6 * 200 + 0.4 * 300, 6);
+  });
+
+  it("ceilingTilt default (omitted) == explicit 0.3; weights sum to 1.0 at any tilt", () => {
+    const swing = dist(200, 150, 300);
+    expect(blendPts(swing)).toBeCloseTo(blendPts(swing, { ceilingTilt: 0.3 }), 9);
+    // a symmetric player blends to its median at ANY tilt (weights sum to 1.0)
+    const sym = dist(220, 220, 220);
+    for (const t of [0, 0.2, 0.3, 0.5, 1]) {
+      expect(blendPts(sym, { ceilingTilt: t })).toBeCloseTo(220, 6);
+    }
+  });
+
+  it("ceilingTilt composes with the Fade discount across the sweep range", () => {
+    // faded(t) == unfaded(t) · fadeDiscount for any tilt — the single-
+    // application invariant (above) must hold across the whole sweep, not just
+    // the default tilt.
+    const swing = dist(200, 150, 300);
+    const faded = { ...swing, fade: true };
+    for (const t of [0.2, 0.3, 0.4]) {
+      expect(blendPts(faded, { ceilingTilt: t })).toBeCloseTo(
+        blendPts(swing, { ceilingTilt: t }) * 0.9,
+        6,
+      );
+    }
+  });
 });
 
 // End-to-end: the live caller's pool is now valued by the blend, so an upside
@@ -211,5 +323,134 @@ describe("optimizeRoster × blendPts", () => {
     expect(blendedBest.totalPts).toBeGreaterThan(rawBest.totalPts);
     const rostered = Object.values(blendedBest.skill.slots).map((slot) => slot?.id);
     expect(rostered).toContain("swing");
+  });
+});
+
+// ── benchValue (V4) ─────────────────────────────────────────────────────────
+// The bench/depth value function: ceiling-weighted, position-aware,
+// dead-zone-penalized. The starter blendPts is median-dominant (0.3 tilt) and
+// correctly ranks a high-median floor-back above a low-median upside bet for
+// a STARTER slot. benchValue inverts this for depth: a $5 bench lotto ticket
+// should prefer the ceiling-bet over the floor-back when the tier is dead.
+//
+// Key assertions:
+//   1. Position-aware tilt: QB/WR/TE get ceiling-weighted (0.7); RB is median.
+//   2. Dead Zone penalty: capped-ceiling players in a dead zone are penalized.
+//   3. The $5 Montgomery-vs-Henderson problem: benchValue flips the order.
+//   4. Missing ceiling degrades gracefully (no penalty, median-only for RB).
+//   5. Fade discount applies multiplicatively, same as blendPts.
+describe("benchValue", () => {
+  it("QB/WR/TE are ceiling-weighted (0.7 tilt); RB is median-only", () => {
+    const sw = benchDist(200, 300, "WR");
+    const rb = benchDist(200, 300, "RB");
+    // WR: 0.3·200 + 0.7·300 = 270
+    expect(benchValue(sw, false)).toBeCloseTo(270, 6);
+    // RB: median-only = 200
+    expect(benchValue(rb, false)).toBeCloseTo(200, 6);
+  });
+
+  it("TE is ceiling-weighted like QB/WR", () => {
+    const te = benchDist(180, 250, "TE");
+    expect(benchValue(te, false)).toBeCloseTo(0.3 * 180 + 0.7 * 250, 6);
+  });
+
+  it("the $5 Montgomery-vs-Henderson problem: benchValue flips the order (RB, dead zone)", () => {
+    // Montgomery: veteran-floor, med 202, ceil 212, ratio 1.05 → capped → penalized
+    // Henderson:  upside-swing,  med 181, ceil 245, ratio 1.35 → not capped
+    const mont = benchDist(202, 212, "RB");
+    const hend = benchDist(181, 245, "RB");
+
+    // In a dead zone: Montgomery's capped ceiling triggers the penalty
+    const mv = benchValue(mont, true);
+    const hv = benchValue(hend, true);
+    // Montgomery: 202 × 0.85 = 171.7
+    expect(mv).toBeCloseTo(202 * 0.85, 6);
+    // Henderson: 181 (no tilt, no penalty — ratio 1.35 > 1.15)
+    expect(hv).toBeCloseTo(181, 6);
+    expect(hv).toBeGreaterThan(mv); // Henderson > Montgomery in dead zone
+
+    // Outside a dead zone: no penalty — Montgomery's higher median wins (202 > 181)
+    const mvSafe = benchValue(mont, false);
+    const hvSafe = benchValue(hend, false);
+    expect(mvSafe).toBeCloseTo(202, 6);
+    expect(hvSafe).toBeCloseTo(181, 6);
+    expect(mvSafe).toBeGreaterThan(hvSafe); // Montgomery wins outside dead zone
+  });
+
+  it("a QB/WR dead-zone floor-back is penalized by BOTH the capped-ceiling penalty AND ceiling tilt — the ceiling-bet pulls further ahead", () => {
+    // WR version: floor-back med220/ceil235 (ratio 1.07, capped) vs upside med200/ceil300 (ratio 1.50)
+    const floor = benchDist(220, 235, "WR");
+    const swing = benchDist(200, 300, "WR");
+    const fv = benchValue(floor, true);
+    const sv = benchValue(swing, true);
+    // floor: (0.3·220 + 0.7·235) × 0.85 = (66 + 164.5) × 0.85 = 230.5 × 0.85 = 195.9
+    expect(fv).toBeCloseTo(230.5 * 0.85, 6);
+    // swing: 0.3·200 + 0.7·300 = 60 + 210 = 270 (no penalty, ratio 1.50 > 1.15)
+    expect(sv).toBeCloseTo(270, 6);
+    expect(sv).toBeGreaterThan(fv);
+  });
+
+  it("QB with missing ceiling degrades to median (no penalty, no tilt for RB-style)", () => {
+    // QB without explicit ceiling: blend degrades to median, no dead-zone
+    // penalty (we can't call it capped if we don't have the data).
+    const qb = benchDist(350, undefined, "QB");
+    // Even in a dead zone, missing ceiling means no penalty.
+    expect(benchValue(qb, true)).toBeCloseTo(350, 6);
+    expect(benchValue(qb, false)).toBeCloseTo(350, 6);
+  });
+
+  it("Fade discount applies multiplicatively (same invariant as blendPts)", () => {
+    const base = benchDist(200, 300, "WR");
+    const faded = benchDist(200, 300, "WR", true);
+    const bv = benchValue(base, false);
+    const fv = benchValue(faded, false);
+    expect(fv).toBeCloseTo(bv * 0.9, 6);
+    // custom fadeDiscount
+    expect(benchValue(faded, false, { fadeDiscount: 0.75 })).toBeCloseTo(bv * 0.75, 6);
+  });
+
+  it("tunable: benchCeilingTilt, deadZonePenalty, deadZoneCeilingCap", () => {
+    const rb = benchDist(200, 220, "RB");
+    // default: RB → median-only, ratio 1.10 < 1.15 → penalized in dead zone
+    expect(benchValue(rb, true)).toBeCloseTo(200 * 0.85, 6);
+    // lower the cap to 1.05: ratio 1.10 > 1.05 → no penalty
+    expect(benchValue(rb, true, { deadZoneCeilingCap: 1.05 })).toBeCloseTo(200, 6);
+    // higher penalty
+    expect(benchValue(rb, true, { deadZonePenalty: 0.7 })).toBeCloseTo(200 * 0.7, 6);
+    // RB with benchTilt configured still applies it
+    expect(benchValue(rb, false, { benchCeilingTilt: 0.5 })).toBeCloseTo(0.5 * 200 + 0.5 * 220, 6);
+  });
+});
+
+// ── starterRetention (V4) ──────────────────────────────────────────────────
+describe("starterRetention", () => {
+  it("returns the right retention prior by position and rank", () => {
+    // RB tiers from attrition_study.py
+    expect(starterRetention("RB", 3)).toBeCloseTo(0.8); // bellcow rk≤6
+    expect(starterRetention("RB", 6)).toBeCloseTo(0.8); // boundary
+    expect(starterRetention("RB", 7)).toBeCloseTo(0.76); // shared-WH rk≤16
+    expect(starterRetention("RB", 16)).toBeCloseTo(0.76);
+    expect(starterRetention("RB", 17)).toBeCloseTo(0.71); // committee rk≤30
+    expect(starterRetention("RB", 30)).toBeCloseTo(0.71);
+    expect(starterRetention("RB", 31)).toBeCloseTo(0.6); // depth
+    expect(starterRetention("RB", 99)).toBeCloseTo(0.6);
+
+    // QB
+    expect(starterRetention("QB", 1)).toBeCloseTo(0.76);
+    expect(starterRetention("QB", 16)).toBeCloseTo(0.76);
+    expect(starterRetention("QB", 17)).toBeCloseTo(0.5);
+
+    // WR
+    expect(starterRetention("WR", 12)).toBeCloseTo(0.77);
+    expect(starterRetention("WR", 13)).toBeCloseTo(0.63);
+
+    // TE
+    expect(starterRetention("TE", 6)).toBeCloseTo(0.73);
+    expect(starterRetention("TE", 7)).toBeCloseTo(0.53);
+  });
+
+  it("K and DEF return 1.0 (not in the study)", () => {
+    expect(starterRetention("K", 1)).toBe(1.0);
+    expect(starterRetention("DEF", 5)).toBe(1.0);
   });
 });

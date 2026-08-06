@@ -16,6 +16,7 @@
 // gaps). Everything here is pure + unit-tested.
 
 import type { DraftState, Player, Position, TeamState, Tier } from "../types.js";
+import { benchValue, type BenchValueInput } from "./optimize.js";
 
 // Minimum starters a legal Superflex lineup MUST field at each position.
 // FLEX (RB/WR/TE) and Superflex (QB/RB/WR/TE) are flexible, so they add no
@@ -141,6 +142,10 @@ export interface ValueAlertOptions {
    * Target flags as value at a smaller discount and a Fade only at a steeper
    * one. Default 0.1 (10 percentage points). */
   targetFadeDelta?: number;
+  /** Additional threshold LOWERING for a Dead Zone player (the worst place to
+   * pay for floor). Default 0.1 (10 percentage points) — a Dead Zone player
+   * requires a larger discount before it counts as value. */
+  deadZoneDelta?: number;
 }
 
 export interface ValueAlert {
@@ -154,8 +159,8 @@ export interface ValueAlert {
   // marketValue × inflation — what this player "should" cost right now.
   adjustedMarketValue: number;
   // Effective per-player threshold: the base `threshold` shifted by
-  // `targetFadeDelta` for any Target/Fade tag (TODO T4). Reported so the UI
-  // can show the real cutoff actually used.
+  // `targetFadeDelta` for any Target/Fade tag AND `deadZoneDelta` for
+  // Dead Zone. Reported so the UI can show the real cutoff actually used.
   threshold: number;
   // The most you can pay and still call it a value: threshold × adjusted.
   // Actionable as a hard stop ("bid up to $X").
@@ -165,15 +170,25 @@ export interface ValueAlert {
   // no market value to compare against.
   discount: number;
   isValue: boolean;
+  // True when the player's tier is a Dead Zone — the threshold was lowered
+  // further, so isValue already reflects the penalty.
+  isDeadZone?: boolean;
 }
 
-// Evaluate the live nomination as a value buy. Returns null when nothing is
-// up for bid, the nominee wasn't resolved to a ranked Player, or the player
-// has no market value to compare against.
+/**
+ * Evaluate the live nomination as a value buy. Returns null when nothing is
+ * up for bid, the nominee wasn't resolved to a ranked Player, or the player
+ * has no market value to compare against.
+ *
+ * @param tiers optional tier data — when supplied, Dead Zone tiers further
+ *   lower the value threshold (require a steeper discount before it counts
+ *   as value, per V4).
+ */
 export function valueAlert(
   state: DraftState,
   players: Player[],
   opts: ValueAlertOptions = {},
+  tiers?: readonly Tier[],
 ): ValueAlert | null {
   const nomination = state.nomination;
   if (!nomination || nomination.playerId === undefined) {
@@ -183,9 +198,8 @@ export function valueAlert(
   if (!player || player.marketValue <= 0) {
     return null;
   }
-  // Target/Fade price-sensitivity shift (TODO T4). Applied to the THRESHOLD,
-  // never to the projection: a Target raises the cutoff (value at a smaller
-  // discount), a Fade lowers it (value only at a steep discount).
+  // Target/Fade price-sensitivity shift. Target raises cutoff (value at a
+  // smaller discount); Fade lowers it (value only at a steep discount).
   const delta = opts.targetFadeDelta ?? DEFAULT_TARGET_FADE_DELTA;
   let threshold = opts.threshold ?? DEFAULT_VALUE_THRESHOLD;
   if (player.target) {
@@ -194,8 +208,19 @@ export function valueAlert(
   if (player.fade) {
     threshold -= delta;
   }
+  // Dead Zone penalty (V4): the worst place to pay for floor — lower the
+  // threshold further so only a genuinely deep discount counts as value.
+  const dzDelta = opts.deadZoneDelta ?? 0.1;
+  let isDeadZone = false;
+  if (tiers) {
+    const tf = tiers.find((t) => t.pos === player.pos && t.tier === player.tier);
+    if (tf?.deadZone) {
+      isDeadZone = true;
+      threshold -= dzDelta;
+    }
+  }
   // Clamp to [0, 1]: never flag an overpay as value (target), and never treat
-  // a free player as a non-value (fade).
+  // a free player as a non-value (fade / dead zone).
   threshold = Math.min(1, Math.max(0, threshold));
   const inflation = Number.isFinite(state.inflation) ? state.inflation : 1;
   const adjustedMarketValue = player.marketValue * inflation;
@@ -214,6 +239,7 @@ export function valueAlert(
     valueCeiling,
     discount,
     isValue: currentBid < valueCeiling,
+    isDeadZone: isDeadZone || undefined,
   };
 }
 
@@ -398,6 +424,11 @@ export interface NominationSuggestOptions {
    * must-fill, unless the live discount is at least this deep. Default 0.4
    * (≥40% below inflation-adjusted market). Drain strategies are unaffected. */
   minFadeDiscount?: number;
+  /** Dead-zone penalty factor for cold-market ranking. A dead-zone player's
+   * benchValue is multiplied by this before sorting coldMarket candidates,
+   * so dead-zone floor-backs sink below non-dead-zone upside bets. Default
+   * 0.85 (−15%). Set to 1.0 to disable the penalty. */
+  coldMarketDeadZonePenalty?: number;
 }
 
 // Total forced-to-fill slots across all rivals, per position. A position with
@@ -503,7 +534,10 @@ export function nominationSuggest(
 
   // Cold-market snipe — ACQUIRE. Your target or must-fill, in a low-contest
   // market, and affordable. Fades are excluded even as a must-fill unless the
-  // live discount is deep (TODO T4). Ranked: targets first, then by value.
+  // live discount is deep. Sorted by benchValue (the depth-acquire score, which
+  // includes the V4 dead-zone penalty + position-aware ceiling tilt) so ceiling-
+  // bets in dead zones outrank floor-backs. Targets are still prioritized first.
+  const dzPenalty = opts.coldMarketDeadZonePenalty ?? 0.85;
   const coldMarket = unsold
     .filter(
       (p) =>
@@ -520,13 +554,17 @@ export function nominationSuggest(
         n === 0
           ? `${who}; no rival is forced at ${p.pos} — likely cheap.${fadeNote}`
           : `${who}; only one desperate rival at ${p.pos}.${fadeNote}`;
+      // benchValue folds in dead-zone penalty + position-aware tilt (V4)
+      const dz = isDeadZone(p.pos, p.tier);
+      const bv = benchValue(p as BenchValueInput, dz);
+      const score = dz ? bv * dzPenalty : bv;
       return {
         c: mkCandidate(p, "cold-market", reason),
         target: p.target ? 1 : 0,
-        mv: p.marketValue,
+        score,
       };
     })
-    .sort((a, b) => b.target - a.target || b.mv - a.mv)
+    .sort((a, b) => b.target - a.target || b.score - a.score)
     .slice(0, limit)
     .map((x) => x.c);
 

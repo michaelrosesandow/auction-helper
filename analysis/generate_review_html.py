@@ -83,6 +83,7 @@ for p in sorted(players, key=lambda x: (x["pos"], x["rank"])):
         "adp": round(p.get("adp", 0)) if p.get("adp") else None,
         "pred": p["cost"], "pts": p["pts"],
         "ppd": round(p["pts"] / p["cost"], 2) if p["cost"] else None,
+        "ceilppd": round(p["ceiling"] / p["cost"], 2) if (p.get("ceiling") and p["cost"]) else None,
         "last": last_paid, "lastrk": last_rk, "hist": hstr,
         "flag": flag, "sig": sig, "note": p.get("note") or "",
     })
@@ -411,6 +412,7 @@ Price what-ifs live in <code>analysis/scenarios.csv</code> (applied at the optim
  <th class="l" data-k="name">Player</th><th data-k="pos">Pos</th>
  <th data-k="rk">26 Rk</th><th data-k="projrk">Proj Rk</th><th data-k="profile">Profile</th><th data-k="adp">ADP</th>
  <th data-k="pred">Pred $</th><th data-k="pts">Proj Pts</th><th data-k="ppd">Pts/$</th>
+ <th data-k="ceil">Proj Ceil</th><th data-k="ceilppd">Ceil/$</th>
  <th data-k="last">'25 $</th><th data-k="lastrk">'25 Rk</th>
  <th class="l">History (recent first)</th><th>Signals</th>
 </tr></thead><tbody>
@@ -422,6 +424,7 @@ Price what-ifs live in <code>analysis/scenarios.csv</code> (applied at the optim
  f'<td>{r["adp"] if r["adp"] else ""}</td>'
  f'<td>${r["pred"]}</td>'
  + f'<td>{r["pts"]}</td><td>{r["ppd"]}</td>'
+ + f'<td>{r["ceil"] or ""}</td><td>{r["ceilppd"] or ""}</td>'
  f'<td>{r["last"] if r["last"] is not None else ""}</td>'
  f'<td>{r["lastrk"] if r["lastrk"] is not None else ""}</td>'
  f'<td class="l" style="font-size:11px;color:#888">{r["hist"]}</td>'
